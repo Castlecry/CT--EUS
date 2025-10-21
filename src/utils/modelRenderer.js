@@ -115,6 +115,8 @@ class ModelRenderer {
     this.renderer.domElement.addEventListener('mousemove', (event) => this.onMouseMove(event));
     // 设置鼠标离开事件监听
     this.renderer.domElement.addEventListener('mouseleave', () => this.onMouseLeave());
+    // 设置鼠标点击事件监听
+    this.renderer.domElement.addEventListener('click', (event) => this.onMouseClick(event));
     console.log('鼠标事件监听已初始化');
   }
 
@@ -254,7 +256,88 @@ class ModelRenderer {
     this.resetHoveredModel();
   }
 
-  // 突出显示指定模型，使其变为淡蓝色透明状态
+  // 鼠标点击事件处理
+  onMouseClick(event) {
+    // 计算鼠标在标准化设备坐标中的位置
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // 更新射线检测器
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+
+    // 获取所有可交互的模型
+    const modelObjects = Array.from(this.models.values());
+    
+    // 射线检测
+    const intersects = this.raycaster.intersectObjects(modelObjects, true);
+
+    if (intersects.length > 0) {
+      console.log('检测到模型点击:', intersects.length);
+      // 找到相交的最前面的物体
+      const intersectedObject = intersects[0].object;
+      
+      // 找到对应的模型
+      let currentModel = null;
+      
+      // 遍历模型，检查相交物体是否在模型内部
+      for (const [name, model] of this.models.entries()) {
+        let found = false;
+        model.traverse((child) => {
+          if (child === intersectedObject) {
+            found = true;
+          }
+        });
+        if (found) {
+          currentModel = name;
+          break;
+        }
+      }
+      
+      if (currentModel) {
+        console.log(`✓ 成功识别点击模型: ${currentModel}`);
+        // 切换模型颜色状态
+        this.toggleModelColorState(currentModel);
+      }
+    }
+  }
+
+  // 切换模型颜色状态
+  toggleModelColorState(modelName) {
+    const model = this.models.get(modelName);
+    if (!model) return;
+
+    console.log(`切换模型${modelName}的颜色状态`);
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        // 切换颜色状态
+        child.material._isPresetColor = !child.material._isPresetColor;
+        
+        // 根据状态设置颜色
+        if (child.material._isPresetColor) {
+          // 切换到预设颜色
+          child.material.color.copy(child.material._presetColor);
+        } else {
+          // 切换回初始淡蓝色
+          child.material.color.copy(child.material._initialColor);
+        }
+        
+        // 如果当前有鼠标悬停，保持悬停时的透明度
+        const currentOpacity = this.hoveredModel === modelName ? 0.3 : 0.6;
+        child.material.opacity = currentOpacity;
+        
+        child.material.needsUpdate = true;
+        console.log(`已切换${modelName}的网格${child.name || 'unnamed'}颜色状态，预设颜色: ${child.material._isPresetColor}`);
+      }
+    });
+    
+    // 强制重新渲染
+    this.renderer.clear();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  // 突出显示指定模型，加深透明度
   highlightModel(modelName, mouseX, mouseY) {
     const targetModel = this.models.get(modelName);
     if (!targetModel) {
@@ -262,7 +345,7 @@ class ModelRenderer {
       return;
     }
 
-    console.log(`高亮模型${modelName}，使其变为淡蓝色透明状态`);
+    console.log(`高亮模型${modelName}，加深透明度`);
     
     // 存储当前悬停模型的原始材质状态
     this.originalMaterials.clear();
@@ -280,23 +363,34 @@ class ModelRenderer {
           object: child,
           originalOpacity: child.material.opacity,
           originalTransparent: child.material.transparent,
-          originalColor: child.material._originalColor ? child.material._originalColor.clone() : child.material.color.clone()
+          originalColor: child.material._isPresetColor ? child.material._presetColor.clone() : child.material._initialColor.clone(),
+          isPresetColor: child.material._isPresetColor
         });
         
-        // 为悬停模型创建淡蓝色透明材质
+        // 保持当前颜色，只加深透明度
+        const currentColor = child.material._isPresetColor ? child.material._presetColor : child.material._initialColor;
         const newMaterial = new THREE.MeshPhongMaterial({
-          color: 0x87CEEB, // 淡蓝色
+          color: currentColor,
           transparent: true,
-          opacity: 0.5, // 半透明
+          opacity: 0.3, // 加深透明度为0.3
           side: THREE.DoubleSide,
+          emissive: 0x000000,
+          emissiveIntensity: 0,
+          shininess: 30,
+          specular: 0x222222,
           polygonOffset: true,
           polygonOffsetFactor: 1,
           polygonOffsetUnits: 1
         });
         
+        // 复制状态标记
+        newMaterial._isPresetColor = child.material._isPresetColor;
+        newMaterial._initialColor = child.material._initialColor;
+        newMaterial._presetColor = child.material._presetColor;
+        
         // 完全替换材质
         child.material = newMaterial;
-        console.log(`为${modelName}的网格${child.name || 'unnamed'}创建淡蓝色透明材质(opacity: 0.5)`);
+        console.log(`为${modelName}的网格${child.name || 'unnamed'}加深透明度至0.3`);
         
         // 强制材质更新
         child.material.needsUpdate = true;
@@ -334,13 +428,13 @@ class ModelRenderer {
     const materials = this.originalMaterials.get(this.hoveredModel);
     if (materials) {
       console.log(`恢复模型${this.hoveredModel}的材质状态，共${materials.length}个网格`);
-      materials.forEach(({ object, originalOpacity, originalTransparent, originalColor }) => {
+      materials.forEach(({ object, originalOpacity, originalTransparent, originalColor, isPresetColor }) => {
         try {
           // 为每个网格创建新的原始材质实例
           const newOriginalMaterial = new THREE.MeshPhongMaterial({
             color: originalColor,
             transparent: originalTransparent,
-            opacity: originalOpacity,
+            opacity: 0.6, // 恢复为初始透明度0.6
             side: THREE.DoubleSide,
             emissive: 0x000000, // 重置发光为黑色（无发光）
             emissiveIntensity: 0, // 重置发光强度为0
@@ -351,8 +445,10 @@ class ModelRenderer {
             polygonOffsetUnits: 1
           });
           
-          // 存储原始颜色引用
-          newOriginalMaterial._originalColor = originalColor.clone();
+          // 存储状态信息
+          newOriginalMaterial._isPresetColor = isPresetColor;
+          newOriginalMaterial._initialColor = object.material._initialColor;
+          newOriginalMaterial._presetColor = object.material._presetColor;
           
           // 完全替换材质
           object.material = newOriginalMaterial;
@@ -360,7 +456,7 @@ class ModelRenderer {
           // 强制更新材质
           object.material.needsUpdate = true;
           
-          console.log(`已恢复${this.hoveredModel}的网格材质，颜色: ${originalColor.getHexString()}, 透明: ${originalTransparent}, 不透明度: ${originalOpacity}`);
+          console.log(`已恢复${this.hoveredModel}的网格材质，颜色: ${originalColor.getHexString()}, 透明: ${originalTransparent}, 不透明度: 0.6`);
         } catch (error) {
           console.error(`恢复材质时出错:`, error);
         }
@@ -428,14 +524,15 @@ class ModelRenderer {
             // 为模型添加材质，确保可交互性
             object.traverse((child) => {
               if (child.isMesh) {
-                // 保存原始颜色，便于后续恢复
-                const originalColor = this.getRandomColor();
+                // 使用统一的淡蓝色透明作为初始状态
+                const initialColor = 0x87CEEB; // 淡蓝色
+                const presetColor = this.getRandomColor(); // 获取预设颜色，用于点击后显示
                 
-                // 确保材质可交互，设置透明属性但保持不透明状态
+                // 确保材质可交互，设置透明属性
                 child.material = new THREE.MeshPhongMaterial({
-                  color: originalColor,
+                  color: initialColor,
                   transparent: true, // 设置为true以便后续可以调整透明度
-                  opacity: 1, // 初始完全不透明
+                  opacity: 0.6, // 初始透明度为0.6
                   side: THREE.DoubleSide,
                   emissive: 0x000000, // 初始无发光
                   emissiveIntensity: 0, // 发光强度为0
@@ -446,8 +543,10 @@ class ModelRenderer {
                   polygonOffsetUnits: 1
                 });
                 
-                // 存储原始颜色，用于重置时恢复
-                child.material._originalColor = new THREE.Color(originalColor);
+                // 存储初始颜色和预设颜色
+                child.material._initialColor = new THREE.Color(initialColor);
+                child.material._presetColor = new THREE.Color(presetColor);
+                child.material._isPresetColor = false; // 标记当前是否为预设颜色
                 
                 // 确保几何体有法线
                 if (!child.geometry.attributes.normal) {

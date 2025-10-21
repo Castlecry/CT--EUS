@@ -12,7 +12,7 @@
     </header>
 
     <main class="main-content">
-      <!-- 器官选择和视图切换区域 -->
+      <!-- 器官选择区域 -->
       <div class="organ-selection-section">
         <div class="organ-panel-header" @click="togglePanel">
           <h3>选择器官模型</h3>
@@ -24,24 +24,22 @@
           </button>
         </div>
         
-        <!-- 视图切换控制 -->
-        <div class="view-toggle-controls">
-          <div class="view-toggle-buttons">
-            <button @click="previousView" class="toggle-btn" :disabled="currentViewIndex === 0">
-              ‹
-            </button>
-            <div class="view-indicator">
-              {{ currentViewIndex + 1 }} / {{ totalViews }}
-            </div>
-            <button @click="nextView" class="toggle-btn" :disabled="currentViewIndex === totalViews - 1">
-              ›
-            </button>
+        <!-- 切换按钮 -->
+        <div class="view-toggle-buttons">
+          <button @click="previousView" class="toggle-btn" :disabled="currentViewIndex === 0">
+            ‹
+          </button>
+          <div class="view-indicator">
+            {{ currentViewIndex + 1 }} / {{ totalViews }}
           </div>
+          <button @click="nextView" class="toggle-btn" :disabled="currentViewIndex === totalViews - 1">
+            ›
+          </button>
         </div>
         
         <div
           class="organ-buttons-container"
-          :style="{ maxHeight: isPanelExpanded ? '300px' : '0px' }"
+          :style="{ maxHeight: isPanelExpanded ? 'none' : '0px' }"
         >
           <div class="organ-buttons">
             <button
@@ -70,33 +68,30 @@
           </div>
         </div>
       </div>
-      
-      <!-- 主要内容区域：左侧3D视图，右侧信息区域 -->
-      <div class="content-wrapper">
-        <!-- 左侧：3D模型展示框（始终显示） -->
-        <div class="model-viewer-section">
-          <div class="model-container-wrapper">
-            <!-- 模型控制按钮 -->
-            <div class="model-controls">
-              <button @click="fitAllToScreen" class="control-btn" :disabled="loadedOrgans.length === 0">
-                全部适应屏幕
-              </button>
-              <button @click="resetView" class="control-btn">重置视角</button>
-              <button @click="clearAllModels" class="control-btn danger" :disabled="loadedOrgans.length === 0">
-                清除所有模型
-              </button>
+      <!-- 模型查看区域 -->
+      <div class="model-viewer-section">
+        <div class="view-toggle-container">
+          <!-- 视图内容 -->
+          <div class="view-content">
+            <!-- 3D模型展示框 -->
+            <div v-if="currentViewType === '3d'" class="model-container-wrapper">
+              <!-- 模型控制按钮 -->
+              <div class="model-controls">
+                <button @click="fitAllToScreen" class="control-btn" :disabled="loadedOrgans.length === 0">
+                  全部适应屏幕
+                </button>
+                <button @click="resetView" class="control-btn">重置视角</button>
+                <button @click="clearAllModels" class="control-btn danger" :disabled="loadedOrgans.length === 0">
+                  清除所有模型
+                </button>
+              </div>
+              <div class="model-container" id="modelContainer">
+                <span class="placeholder-text">模型展示框字样</span>
+              </div>
             </div>
-            <div class="model-container" id="modelContainer">
-              <span class="placeholder-text">模型展示框</span>
-            </div>
-          </div>
-        </div>
-        
-        <!-- 右侧：信息区域（可切换） -->
-        <div class="info-section">
-          <div class="info-container" :style="{ transform: `translateX(-${currentViewIndex * 100}%)` }">
-            <!-- 模型列表视图 -->
-            <div class="info-panel model-list-panel">
+            
+            <!-- 模型信息展示框 -->
+            <div v-else-if="currentViewType === 'info'" class="model-info-container">
               <div class="model-info-header">
                 <h3>已加载的模型</h3>
                 <span class="model-count">({{ loadedOrgans.length }})</span>
@@ -110,7 +105,7 @@
                   <button 
                     v-for="organKey in loadedOrgans" 
                     :key="organKey"
-                    @click="switchToDetailView(organKey)"
+                    @click="switchToModel(organKey, false)"
                     class="model-info-btn"
                   >
                     {{ organList[organKey] }}
@@ -119,8 +114,8 @@
               </div>
             </div>
             
-            <!-- 模型详情视图 -->
-            <div class="info-panel model-detail-panel">
+            <!-- 模型详情展示框 -->
+            <div v-else-if="currentViewType === 'info-detail'" class="model-info-container">
               <div class="model-info-header">
                 <button class="back-btn" @click="returnToListView">← 返回列表</button>
                 <h3>模型详情</h3>
@@ -136,6 +131,9 @@
                         :class="{ 'visible': modelVisibility, 'hidden': !modelVisibility }"
                       >
                         {{ modelVisibility ? '隐藏模型' : '显示模型' }}
+                      </button>
+                      <button class="view-model-btn" @click="switchToModel(selectedModelKey)">
+                        查看3D模型
                       </button>
                     </div>
                   </div>
@@ -279,9 +277,10 @@ const loadingAll = ref(false);
 const allLoaded = ref(false);
 const isPanelExpanded = ref(true); // 控制面板展开/收起状态
 
-// 视图切换状态 - 现在控制右侧信息区域
+// 视图切换状态
 const currentViewIndex = ref(0);
-const views = ref(['model-list']); // 默认只有模型列表视图
+const views = ref(['3d']); // 默认只有3D视图
+const currentViewType = computed(() => views.value[currentViewIndex.value]);
 const totalViews = computed(() => views.value.length);
 
 // 当前选中的模型详情
@@ -318,8 +317,9 @@ watch(selectedModelKey, async (newKey) => {
   }
 });
 
-// 模拟模型详情数据
+// 模拟模型详情数据（实际应用中应从API获取）
 const getModelDetail = (organKey) => {
+  // 这里是模拟数据，实际应用中应从API获取真实的模型头部信息
   return {
     name: organList[organKey],
     type: 'OBJ模型',
@@ -496,18 +496,19 @@ const clearAllModels = () => {
   renderer.value.clearAllModels();
   loadedOrgans.value = [];
   allLoaded.value = false;
-  selectedModelKey.value = null;
-  selectedModelDetail.value = null;
   updateViews(); // 更新视图列表
   console.log('所有模型已清除');
 };
 
 // 更新视图列表
 const updateViews = () => {
-  const newViews = ['model-list']; // 始终包含模型列表视图
-  // 如果有选中的模型，添加详情视图
-  if (selectedModelKey.value) {
-    newViews.push('model-detail');
+  const newViews = ['3d'];
+  if (loadedOrgans.value.length > 0) {
+    newViews.push('info');
+    // 如果有选中的模型，添加详情视图
+    if (selectedModelKey.value) {
+      newViews.push('info-detail');
+    }
   }
   views.value = newViews;
   
@@ -522,8 +523,13 @@ const switchToDetailView = (organKey) => {
   selectedModelKey.value = organKey;
   selectedModelDetail.value = getModelDetail(organKey);
   updateViews();
-  // 切换到详情视图
-  currentViewIndex.value = 1;
+  // 确保视图切换到详情页
+  nextTick(() => {
+    const detailIndex = views.value.indexOf('info-detail');
+    if (detailIndex !== -1) {
+      currentViewIndex.value = detailIndex;
+    }
+  });
   console.log(`查看模型详情: ${organList[organKey]}`);
 };
 
@@ -595,8 +601,13 @@ const returnToListView = () => {
   selectedModelKey.value = null;
   selectedModelDetail.value = null;
   updateViews();
-  // 切换到列表视图
-  currentViewIndex.value = 0;
+  // 确保视图切换到列表页
+  nextTick(() => {
+    const infoIndex = views.value.indexOf('info');
+    if (infoIndex !== -1) {
+      currentViewIndex.value = infoIndex;
+    }
+  });
 };
 
 // 切换到上一个视图
@@ -612,10 +623,25 @@ const nextView = () => {
     currentViewIndex.value++;
   }
 };
+
+// 切换到特定模型
+const switchToModel = (organKey, to3D = true) => {
+  if (to3D) {
+    // 切换到3D视图
+    currentViewIndex.value = 0;
+    // 可以在这里添加聚焦到特定模型的逻辑
+    console.log(`切换到模型: ${organList[organKey]}`);
+  } else {
+    // 切换到详情视图
+    switchToDetailView(organKey);
+  }
+};
 </script>
 
 <style scoped>
-/* --- 全局与重置 --- */
+/* --- 最终修复版样式 --- */
+
+/* 全局与重置 */
 :global(*) {
   box-sizing: border-box;
 }
@@ -629,14 +655,22 @@ const nextView = () => {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* 根容器 */
+:global(#app) {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 根容器：使用 CSS Grid 布局，这是最稳健的方案 */
 .model-viewer-container {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr; /* 头部高度自适应，主内容区占据所有剩余空间 */
   width: 100vw;
   height: 100vh;
-  background-color: #f8f9fa;
   overflow: hidden;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 /* 头部 */
@@ -646,7 +680,6 @@ header {
   justify-content: space-between;
   align-items: center;
   padding: 15px 30px;
-  background-color: white;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   border-bottom: 1px solid #e9ecef;
 }
@@ -662,40 +695,109 @@ header {
   grid-row: 2 / 3;
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  padding: 20px 0;
   gap: 20px;
   min-height: 0;
   overflow: hidden;
+  width: 100vw;
   height: 100%;
+  flex: 1;
+  margin: 0;
+  box-sizing: border-box;
+  position: relative;
+  max-width: 100vw;
+  left: 0;
+  right: 0;
 }
 
-/* 器官选择和视图切换区域 */
+/* 器官选择区域 */
 .organ-selection-section {
   flex-shrink: 0;
   background-color: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.08);
+  border-radius: 0;
+  padding: 15px 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   width: 100%;
+  margin: 0;
   max-width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  left: 0;
+  right: 0;
 }
 
-/* 视图切换控制 */
-.view-toggle-controls {
-  display: flex;
-  justify-content: center;
-  padding: 10px 0;
-}
-
-.view-toggle-buttons {
+/* 视图切换按钮（在器官选择区域内） */
+.organ-selection-section .view-toggle-buttons {
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 15px 0;
+  margin-bottom: 10px;
   background-color: #f8f9fa;
   border-radius: 6px;
-  padding: 5px 10px;
+}
+.organ-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #f1f2f6;
+  cursor: pointer;
+}
+.organ-panel-header h3 { margin: 0; color: #2c3e50; font-size: 1.1rem; }
+.toggle-btn { background: none; border: none; font-size: 1.5rem; line-height: 1; cursor: pointer; color: #6c757d; padding: 0; }
+
+.organ-buttons-container {
+  overflow: hidden;
+  transition: max-height 0.35s ease-in-out;
+}
+
+.organ-buttons { display: flex; flex-wrap: wrap; gap: 12px; padding: 20px 0 10px; }
+.organ-btn {
+  flex: 1 1 auto;
+  min-width: 110px;
+  background-color: #f8f9fa; border: 1px solid #dee2e6;
+  padding: 10px 8px; border-radius: 6px; cursor: pointer; transition: all 0.2s;
+  font-size: 0.9rem; text-align: center;
+}
+.organ-btn:hover:not(:disabled) { border-color: #4a90e2; color: #4a90e2; background-color: #f1f7ff; }
+.organ-btn.loaded { background-color: #e8f5e9; border-color: #c3e6cb; color: #155724; font-weight: 500; }
+.organ-btn:disabled { cursor: not-allowed; opacity: 0.7; }
+
+.organ-panel-footer { display: flex; justify-content: center; padding-top: 20px; border-top: 1px solid #f1f2f6; }
+.load-all-btn { background-color: #4a90e2; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: background-color 0.2s; }
+.load-all-btn:hover:not(:disabled) { background-color: #357abd; }
+.load-all-btn:disabled { background-color: #6c757d; cursor: not-allowed; opacity: 0.8; }
+
+/* 模型查看区域 */
+.model-viewer-section {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  left: 0;
+  right: 0;
+  max-width: 100%;
+}
+
+/* 视图切换容器 */
+.view-toggle-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  overflow: hidden;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
 }
 
 .toggle-btn {
@@ -730,163 +832,26 @@ header {
   text-align: center;
 }
 
-.organ-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #f1f2f6;
-  cursor: pointer;
-}
-.organ-panel-header h3 { margin: 0; color: #2c3e50; font-size: 1.1rem; }
-
-.organ-buttons-container {
-  overflow: hidden;
-  transition: max-height 0.35s ease-in-out;
-}
-
-.organ-buttons { display: flex; flex-wrap: wrap; gap: 12px; padding: 20px 0 10px; }
-.organ-btn {
-  flex: 1 1 auto;
-  min-width: 110px;
-  background-color: #f8f9fa; border: 1px solid #dee2e6;
-  padding: 10px 8px; border-radius: 6px; cursor: pointer; transition: all 0.2s;
-  font-size: 0.9rem; text-align: center;
-  position: relative;
-}
-.organ-btn:hover:not(:disabled) { border-color: #4a90e2; color: #4a90e2; background-color: #f1f7ff; }
-.organ-btn.loaded { background-color: #e8f5e9; border-color: #c3e6cb; color: #155724; font-weight: 500; }
-.organ-btn:disabled { cursor: not-allowed; opacity: 0.7; }
-
-.organ-panel-footer { display: flex; justify-content: center; padding-top: 20px; border-top: 1px solid #f1f2f6; }
-.load-all-btn { background-color: #4a90e2; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: background-color 0.2s; }
-.load-all-btn:hover:not(:disabled) { background-color: #357abd; }
-.load-all-btn:disabled { background-color: #6c757d; cursor: not-allowed; opacity: 0.8; }
-
-/* 主要内容区域：左侧3D视图，右侧信息区域 */
-.content-wrapper {
-  flex: 1;
-  display: flex;
-  gap: 20px;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* 左侧：3D模型展示框（始终显示） */
-.model-viewer-section {
-  flex: 2;
-  display: flex;
-  height: 100%;
-  min-height: 0;
-}
-
-.model-container-wrapper {
+/* 视图内容 */
+.view-content {
   flex: 1;
   position: relative;
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.08);
   min-height: 0;
   height: 100%;
-}
-
-/* 模型控制按钮 */
-.model-controls {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-  display: flex;
-  gap: 10px;
-  z-index: 10;
-}
-
-.control-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.3s ease;
-  font-size: 14px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-.control-btn:hover:not(:disabled) {
-  background: #5a6268;
-}
-
-.control-btn.danger {
-  background: #dc3545;
-}
-
-.control-btn.danger:hover:not(:disabled) {
-  background: #c82333;
-}
-
-.control-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.model-container {
-  flex: 1;
-  background-color: #f0f0f0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 12px;
-}
-#modelContainer {
   width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-.placeholder-text {
-  color: #aaa;
-  font-size: 1.2rem;
-  font-weight: 500;
+  display: flex; /* 添加flex布局 */
+  flex-direction: column; /* 垂直方向布局 */
 }
 
-/* 右侧：信息区域（可切换） */
-.info-section {
-  flex: 1;
+/* 模型信息展示框 */
+.model-info-container {
+  height: 100%;
   display: flex;
-  height: 100%;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-  border-radius: 12px;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.08);
-}
-
-.info-container {
-  display: flex;
-  height: 100%;
-  width: 200%; /* 两个面板的宽度 */
-  transition: transform 0.3s ease;
-}
-
-.info-panel {
-  width: 50%;
-  height: 100%;
+  flex-direction: column;
   background-color: white;
-  overflow: hidden;
-}
-
-/* 模型列表视图样式 */
-.model-list-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 模型详情视图样式 */
-.model-detail-panel {
-  display: flex;
-  flex-direction: column;
+  min-height: 450px;
+  flex: 1; /* 占据所有可用空间 */
 }
 
 .model-info-header {
@@ -929,6 +894,7 @@ header {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
+  height: 100%; /* 确保高度占满 */
 }
 
 .no-models {
@@ -949,30 +915,6 @@ header {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 15px;
-}
-
-.model-info-btn {
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 15px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.95rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 80px;
-}
-
-.model-info-btn:hover {
-  border-color: #4a90e2;
-  color: #4a90e2;
-  background-color: #f1f7ff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* 模型详情卡片样式 */
@@ -1189,27 +1131,7 @@ header {
   background-color: #138496;
 }
 
-/* 加载中动画 */
-.loading::after {
-  content: ''; position: absolute; top: 50%; left: 50%;
-  width: 16px; height: 16px; margin-top: -8px; margin-left: -8px;
-  border: 2px solid rgba(74, 144, 226, 0.3); border-top-color: #4a90e2;
-  border-radius: 50%; animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
 /* 响应式调整 */
-@media (max-width: 1024px) {
-  .content-wrapper {
-    flex-direction: column;
-  }
-  
-  .model-viewer-section, .info-section {
-    flex: none;
-    height: 50%;
-  }
-}
-
 @media (max-width: 768px) {
   .model-detail-header {
     flex-direction: column;
@@ -1230,4 +1152,112 @@ header {
     width: 100%;
   }
 }
+
+.model-info-btn {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  padding: 15px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80px;
+}
+
+.model-info-btn:hover {
+  border-color: #4a90e2;
+  color: #4a90e2;
+  background-color: #f1f7ff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 模型容器包装器 */
+.model-container-wrapper {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+  width: 100%; /* 确保宽度占满 */
+}
+
+/* 模型控制按钮 */
+.model-controls {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+}
+
+.control-btn {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+  font-size: 14px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.control-btn:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.control-btn.danger {
+  background: #dc3545;
+}
+
+.control-btn.danger:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.control-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.model-container {
+  flex: 1;
+  background-color: #f0f0f0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0; /* 添加最小高度为0 */
+}
+#modelContainer {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1; /* 占据所有可用空间 */
+}
+.placeholder-text {
+  color: #aaa;
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+/* 加载中动画 */
+.loading::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: 16px; height: 16px; margin-top: -8px; margin-left: -8px;
+  border: 2px solid rgba(74, 144, 226, 0.3); border-top-color: #4a90e2;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

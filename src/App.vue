@@ -1,27 +1,29 @@
-<!-- <script setup></script>
+<script setup>
+import ModelViewerPage from './views/ModelViewerPage.vue';
+</script>
 
 <template>
-  <router-view />
+  <!-- <router-view /> -->
+  <ModelViewerPage />
 </template>
 
-<style scoped>
+<style>
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-body {
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
-</style> -->
-// In App.vue or another page
-<template>
-  <!-- <LocalModelViewer /> -->
-   <ModelViewerPage />
-</template>
 
-<script setup>
-import LocalModelViewer from './components/LocalModelViewer.vue';
-import ModelViewerPage from './views/ModelViewerPage.vue';
-</script>
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+</style>
