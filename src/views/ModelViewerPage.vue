@@ -12,18 +12,8 @@
     </header>
 
     <main class="main-content">
-      <!-- 器官选择区域 -->
+      <!-- 器官选择区域 - 作为可切换的视图 -->
       <div class="organ-selection-section">
-        <div class="organ-panel-header" @click="togglePanel">
-          <h3>选择器官模型</h3>
-          <button
-            class="toggle-btn"
-            :title="isPanelExpanded ? '收起' : '展开'"
-          >
-            {{ isPanelExpanded ? '▲' : '▼' }}
-          </button>
-        </div>
-        
         <!-- 切换按钮 -->
         <div class="view-toggle-buttons">
           <button @click="previousView" class="toggle-btn" :disabled="currentViewIndex === 0">
@@ -37,194 +27,199 @@
           </button>
         </div>
         
-        <div
-          class="organ-buttons-container"
-          :style="{ maxHeight: isPanelExpanded ? 'none' : '0px' }"
-        >
-          <div class="organ-buttons">
+        <!-- 器官选择视图 -->
+        <div v-if="currentViewType === 'select'" class="organ-selection-view">
+          <div class="organ-panel-header" @click="togglePanel">
+            <h3>选择器官模型</h3>
             <button
-              v-for="(organ, key) in organList"
-              :key="key"
-              :class="['organ-btn', {
-                'loaded': loadedOrgans.includes(key),
-                'disabled': isDisabled(key),
-                'loading': loading[key]
-              }]"
-              @click="loadOrganModel(key)"
-              :disabled="isDisabled(key)"
+              class="toggle-btn"
+              :title="isPanelExpanded ? '收起' : '展开'"
             >
-              {{ organ }}
+              {{ isPanelExpanded ? '▲' : '▼' }}
             </button>
           </div>
-          <div class="organ-panel-footer">
-            <button
-              class="load-all-btn"
-              @click="loadAllModels"
-              :disabled="allLoaded || loadingAll"
-            >
-              <span v-if="loadingAll">加载中...</span>
-              <span v-else>获取全部器官模型</span>
-            </button>
+          
+          <div
+            class="organ-buttons-container"
+            :style="{ maxHeight: isPanelExpanded ? 'none' : '0px' }"
+          >
+            <div class="organ-buttons">
+              <button
+                v-for="(organ, key) in organList"
+                :key="key"
+                :class="['organ-btn', {
+                  'loaded': loadedOrgans.includes(key),
+                  'disabled': isDisabled(key),
+                  'loading': loading[key]
+                }]"
+                @click="loadOrganModel(key)"
+                :disabled="isDisabled(key)"
+              >
+                {{ organ }}
+              </button>
+            </div>
+            <div class="organ-panel-footer">
+              <button
+                class="load-all-btn"
+                @click="loadAllModels"
+                :disabled="allLoaded || loadingAll"
+              >
+                <span v-if="loadingAll">加载中...</span>
+                <span v-else>获取全部器官模型</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-      <!-- 模型查看区域 -->
-      <div class="model-viewer-section">
-        <div class="view-toggle-container">
-          <!-- 视图内容 -->
-          <div class="view-content">
-            <!-- 3D模型展示框 -->
-            <div v-if="currentViewType === '3d'" class="model-container-wrapper">
-              <!-- 模型控制按钮 -->
-              <div class="model-controls">
-                <button @click="fitAllToScreen" class="control-btn" :disabled="loadedOrgans.length === 0">
-                  全部适应屏幕
-                </button>
-                <button @click="resetView" class="control-btn">重置视角</button>
-                <button @click="clearAllModels" class="control-btn danger" :disabled="loadedOrgans.length === 0">
-                  清除所有模型
-                </button>
-              </div>
-              <div class="model-container" id="modelContainer">
-                <span class="placeholder-text">模型展示框字样</span>
-              </div>
+        
+        <!-- 模型信息视图 -->
+        <div v-else-if="currentViewType === 'info'" class="model-info-view">
+          <div class="model-info-header">
+            <h3>已加载的模型</h3>
+            <span class="model-count">({{ loadedOrgans.length }})</span>
+          </div>
+          <div class="model-info-content">
+            <div v-if="loadedOrgans.length === 0" class="no-models">
+              <p>暂无已加载的模型</p>
+              <p>请从器官选择视图加载模型</p>
             </div>
-            
-            <!-- 模型信息展示框 -->
-            <div v-else-if="currentViewType === 'info'" class="model-info-container">
-              <div class="model-info-header">
-                <h3>已加载的模型</h3>
-                <span class="model-count">({{ loadedOrgans.length }})</span>
-              </div>
-              <div class="model-info-content">
-                <div v-if="loadedOrgans.length === 0" class="no-models">
-                  <p>暂无已加载的模型</p>
-                  <p>请从上方选择器官模型进行加载</p>
-                </div>
-                <div v-else class="model-buttons-grid">
+            <div v-else class="model-buttons-grid">
+              <button 
+                v-for="organKey in loadedOrgans" 
+                :key="organKey"
+                @click="switchToModel(organKey, false)"
+                class="model-info-btn"
+              >
+                {{ organList[organKey] }}
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 模型详情视图 -->
+        <div v-else-if="currentViewType === 'info-detail'" class="model-detail-view">
+          <div class="model-info-header">
+            <button class="back-btn" @click="returnToListView">← 返回列表</button>
+            <h3>模型详情</h3>
+          </div>
+          <div class="model-info-content" v-if="selectedModelDetail">
+            <div class="model-detail-card">
+              <div class="model-detail-header">
+                <h4>{{ selectedModelDetail.name }}</h4>
+                <div class="model-controls-buttons">
                   <button 
-                    v-for="organKey in loadedOrgans" 
-                    :key="organKey"
-                    @click="switchToModel(organKey, false)"
-                    class="model-info-btn"
+                    class="visibility-btn" 
+                    @click="toggleVisibility"
+                    :class="{ 'visible': modelVisibility, 'hidden': !modelVisibility }"
                   >
-                    {{ organList[organKey] }}
+                    {{ modelVisibility ? '隐藏模型' : '显示模型' }}
                   </button>
                 </div>
               </div>
-            </div>
-            
-            <!-- 模型详情展示框 -->
-            <div v-else-if="currentViewType === 'info-detail'" class="model-info-container">
-              <div class="model-info-header">
-                <button class="back-btn" @click="returnToListView">← 返回列表</button>
-                <h3>模型详情</h3>
-              </div>
-              <div class="model-info-content" v-if="selectedModelDetail">
-                <div class="model-detail-card">
-                  <div class="model-detail-header">
-                    <h4>{{ selectedModelDetail.name }}</h4>
-                    <div class="model-controls-buttons">
-                      <button 
-                        class="visibility-btn" 
-                        @click="toggleVisibility"
-                        :class="{ 'visible': modelVisibility, 'hidden': !modelVisibility }"
-                      >
-                        {{ modelVisibility ? '隐藏模型' : '显示模型' }}
-                      </button>
-                      <button class="view-model-btn" @click="switchToModel(selectedModelKey)">
-                        查看3D模型
-                      </button>
-                    </div>
+              <div class="model-detail-content">
+                <div class="detail-row">
+                  <span class="detail-label">模型类型：</span>
+                  <span class="detail-value">{{ selectedModelDetail.type }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">顶点数：</span>
+                  <span class="detail-value">{{ selectedModelDetail.vertices.toLocaleString() }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">面数：</span>
+                  <span class="detail-value">{{ selectedModelDetail.faces.toLocaleString() }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">文件大小：</span>
+                  <span class="detail-value">{{ selectedModelDetail.fileSize }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">创建日期：</span>
+                  <span class="detail-value">{{ selectedModelDetail.creationDate }}</span>
+                </div>
+                <div class="detail-row description">
+                  <span class="detail-label">模型描述：</span>
+                  <span class="detail-value">{{ selectedModelDetail.description }}</span>
+                </div>
+                
+                <!-- 颜色选择器 -->
+                <div class="color-selection-section">
+                  <h5>模型颜色</h5>
+                  
+                  <!-- 预设颜色选择 -->
+                  <div class="preset-colors">
+                    <div 
+                      v-for="(color, index) in presetColors" 
+                      :key="index"
+                      class="color-option"
+                      :class="{ 'selected': index === selectedColorIndex && !showCustomColor }"
+                      :style="{ backgroundColor: color.hex }"
+                      @click="selectPresetColor(index)"
+                      :title="color.name"
+                    ></div>
                   </div>
-                  <div class="model-detail-content">
-                    <div class="detail-row">
-                      <span class="detail-label">模型类型：</span>
-                      <span class="detail-value">{{ selectedModelDetail.type }}</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-label">顶点数：</span>
-                      <span class="detail-value">{{ selectedModelDetail.vertices.toLocaleString() }}</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-label">面数：</span>
-                      <span class="detail-value">{{ selectedModelDetail.faces.toLocaleString() }}</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-label">文件大小：</span>
-                      <span class="detail-value">{{ selectedModelDetail.fileSize }}</span>
-                    </div>
-                    <div class="detail-row">
-                      <span class="detail-label">创建日期：</span>
-                      <span class="detail-value">{{ selectedModelDetail.creationDate }}</span>
-                    </div>
-                    <div class="detail-row description">
-                      <span class="detail-label">模型描述：</span>
-                      <span class="detail-value">{{ selectedModelDetail.description }}</span>
-                    </div>
-                    
-                    <!-- 颜色选择器 -->
-                    <div class="color-selection-section">
-                      <h5>模型颜色</h5>
-                      
-                      <!-- 预设颜色选择 -->
-                      <div class="preset-colors">
-                        <div 
-                          v-for="(color, index) in presetColors" 
-                          :key="index"
-                          class="color-option"
-                          :class="{ 'selected': index === selectedColorIndex && !showCustomColor }"
-                          :style="{ backgroundColor: color.hex }"
-                          @click="selectPresetColor(index)"
-                          :title="color.name"
-                        ></div>
+                  
+                  <!-- 自定义RGB颜色 -->
+                  <div class="custom-color-section">
+                    <div class="color-preview" :style="{ backgroundColor: rgbToHex(customRgb) }"></div>
+                    <div class="rgb-inputs">
+                      <div class="rgb-input-group">
+                        <label>R</label>
+                        <input 
+                          type="number" 
+                          :value="customRgb.r"
+                          @input="handleRgbChange('r', $event.target.value)"
+                          min="0" 
+                          max="255"
+                          placeholder="R"
+                        >
                       </div>
-                      
-                      <!-- 自定义RGB颜色 -->
-                      <div class="custom-color-section">
-                        <div class="color-preview" :style="{ backgroundColor: rgbToHex(customRgb) }"></div>
-                        <div class="rgb-inputs">
-                          <div class="rgb-input-group">
-                            <label>R</label>
-                            <input 
-                              type="number" 
-                              :value="customRgb.r"
-                              @input="handleRgbChange('r', $event.target.value)"
-                              min="0" 
-                              max="255"
-                              placeholder="R"
-                            >
-                          </div>
-                          <div class="rgb-input-group">
-                            <label>G</label>
-                            <input 
-                              type="number" 
-                              :value="customRgb.g"
-                              @input="handleRgbChange('g', $event.target.value)"
-                              min="0" 
-                              max="255"
-                              placeholder="G"
-                            >
-                          </div>
-                          <div class="rgb-input-group">
-                            <label>B</label>
-                            <input 
-                              type="number" 
-                              :value="customRgb.b"
-                              @input="handleRgbChange('b', $event.target.value)"
-                              min="0" 
-                              max="255"
-                              placeholder="B"
-                            >
-                          </div>
-                          <button class="apply-color-btn" @click="applyCustomColor">应用</button>
-                        </div>
+                      <div class="rgb-input-group">
+                        <label>G</label>
+                        <input 
+                          type="number" 
+                          :value="customRgb.g"
+                          @input="handleRgbChange('g', $event.target.value)"
+                          min="0" 
+                          max="255"
+                          placeholder="G"
+                        >
                       </div>
+                      <div class="rgb-input-group">
+                        <label>B</label>
+                        <input 
+                          type="number" 
+                          :value="customRgb.b"
+                          @input="handleRgbChange('b', $event.target.value)"
+                          min="0" 
+                          max="255"
+                          placeholder="B"
+                        >
+                      </div>
+                      <button class="apply-color-btn" @click="applyCustomColor">应用</button>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+      <!-- 模型查看区域 - 固定显示3D模型 -->
+      <div class="model-viewer-section">
+        <!-- 3D模型展示框 -->
+        <div class="model-container-wrapper">
+          <!-- 模型控制按钮 -->
+          <div class="model-controls">
+            <button @click="fitAllToScreen" class="control-btn" :disabled="loadedOrgans.length === 0">
+              全部适应屏幕
+            </button>
+            <button @click="resetView" class="control-btn">重置视角</button>
+            <button @click="clearAllModels" class="control-btn danger" :disabled="loadedOrgans.length === 0">
+              清除所有模型
+            </button>
+          </div>
+          <div class="model-container" id="modelContainer">
+            <span class="placeholder-text">模型展示框字样</span>
           </div>
         </div>
       </div>
@@ -279,7 +274,7 @@ const isPanelExpanded = ref(true); // 控制面板展开/收起状态
 
 // 视图切换状态
 const currentViewIndex = ref(0);
-const views = ref(['3d']); // 默认只有3D视图
+const views = ref(['select']); // 默认只有选择器官视图
 const currentViewType = computed(() => views.value[currentViewIndex.value]);
 const totalViews = computed(() => views.value.length);
 
@@ -502,12 +497,12 @@ const clearAllModels = () => {
 
 // 更新视图列表
 const updateViews = () => {
-  const newViews = ['3d'];
+  const newViews = ['select']; // 器官选择视图
   if (loadedOrgans.value.length > 0) {
-    newViews.push('info');
+    newViews.push('info'); // 模型信息视图
     // 如果有选中的模型，添加详情视图
     if (selectedModelKey.value) {
-      newViews.push('info-detail');
+      newViews.push('info-detail'); // 模型详情视图
     }
   }
   views.value = newViews;
@@ -625,15 +620,14 @@ const nextView = () => {
 };
 
 // 切换到特定模型
-const switchToModel = (organKey, to3D = true) => {
-  if (to3D) {
-    // 切换到3D视图
-    currentViewIndex.value = 0;
-    // 可以在这里添加聚焦到特定模型的逻辑
-    console.log(`切换到模型: ${organList[organKey]}`);
-  } else {
+const switchToModel = (organKey, toDetail = true) => {
+  if (toDetail) {
     // 切换到详情视图
     switchToDetailView(organKey);
+  } else {
+    // 聚焦到特定模型（3D模型在下方固定显示）
+    console.log(`聚焦到模型: ${organList[organKey]}`);
+    // 可以在这里添加聚焦到特定模型的逻辑
   }
 };
 </script>
@@ -695,7 +689,7 @@ header {
   grid-row: 2 / 3;
   display: flex;
   flex-direction: column;
-  padding: 20px 0;
+  padding: 20px;
   gap: 20px;
   min-height: 0;
   overflow: hidden;
@@ -714,7 +708,7 @@ header {
 .organ-selection-section {
   flex-shrink: 0;
   background-color: white;
-  border-radius: 0;
+  border-radius: 12px;
   padding: 15px 20px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   display: flex;
@@ -786,6 +780,9 @@ header {
   left: 0;
   right: 0;
   max-width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 /* 视图切换容器 */
@@ -1183,11 +1180,12 @@ header {
   position: relative;
   display: flex;
   flex-direction: column;
-  border-radius: 0;
+  border-radius: 12px;
   overflow: hidden;
   min-height: 0;
   height: 100%;
   width: 100%; /* 确保宽度占满 */
+  background-color: white;
 }
 
 /* 模型控制按钮 */
@@ -1235,7 +1233,7 @@ header {
   display: flex;
   justify-content: center;
   align-items: center;
-  border-radius: 0;
+  border-radius: 0 0 12px 12px;
   width: 100%;
   height: 100%;
   min-height: 0; /* 添加最小高度为0 */
