@@ -86,7 +86,7 @@
               <button 
                 v-for="organKey in loadedOrgans" 
                 :key="organKey"
-                @click="switchToModel(organKey, false)"
+                @click="switchToModel(organKey)"
                 class="model-info-btn"
               >
                 {{ organList[organKey] }}

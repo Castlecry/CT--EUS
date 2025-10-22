@@ -314,18 +314,25 @@ class ModelRenderer {
         // 切换颜色状态
         child.material._isPresetColor = !child.material._isPresetColor;
         
-        // 根据状态设置颜色
+        // 根据状态设置颜色和透明度
         if (child.material._isPresetColor) {
-          // 切换到预设颜色
+          // 切换到预设颜色，保持当前透明度状态
           child.material.color.copy(child.material._presetColor);
         } else {
-          // 切换回初始淡蓝色
+          // 切换回初始淡蓝色，恢复初始透明度
           child.material.color.copy(child.material._initialColor);
         }
         
-        // 如果当前有鼠标悬停，保持悬停时的透明度
-        const currentOpacity = this.hoveredModel === modelName ? 0.3 : 0.6;
-        child.material.opacity = currentOpacity;
+        // 确保透明度正确设置
+        if (this.hoveredModel === modelName) {
+          // 悬停状态 - 实体化
+          child.material.transparent = false;
+          child.material.opacity = 1.0;
+        } else {
+          // 非悬停状态 - 透明
+          child.material.transparent = true;
+          child.material.opacity = 0.6;
+        }
         
         child.material.needsUpdate = true;
         console.log(`已切换${modelName}的网格${child.name || 'unnamed'}颜色状态，预设颜色: ${child.material._isPresetColor}`);
@@ -337,7 +344,7 @@ class ModelRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // 突出显示指定模型，加深透明度
+  // 突出显示指定模型，实体化显示（不透明）
   highlightModel(modelName, mouseX, mouseY) {
     const targetModel = this.models.get(modelName);
     if (!targetModel) {
@@ -345,7 +352,7 @@ class ModelRenderer {
       return;
     }
 
-    console.log(`高亮模型${modelName}，加深透明度`);
+    console.log(`高亮模型${modelName}，实体化显示`);
     
     // 存储当前悬停模型的原始材质状态
     this.originalMaterials.clear();
@@ -367,12 +374,12 @@ class ModelRenderer {
           isPresetColor: child.material._isPresetColor
         });
         
-        // 保持当前颜色，只加深透明度
+        // 保持当前颜色，设置为不透明（实体化）
         const currentColor = child.material._isPresetColor ? child.material._presetColor : child.material._initialColor;
         const newMaterial = new THREE.MeshPhongMaterial({
           color: currentColor,
-          transparent: true,
-          opacity: 0.3, // 加深透明度为0.3
+          transparent: false, // 实体化显示
+          opacity: 1.0, // 完全不透明
           side: THREE.DoubleSide,
           emissive: 0x000000,
           emissiveIntensity: 0,
@@ -433,7 +440,7 @@ class ModelRenderer {
           // 为每个网格创建新的原始材质实例
           const newOriginalMaterial = new THREE.MeshPhongMaterial({
             color: originalColor,
-            transparent: originalTransparent,
+            transparent: true, // 保持透明状态
             opacity: 0.6, // 恢复为初始透明度0.6
             side: THREE.DoubleSide,
             emissive: 0x000000, // 重置发光为黑色（无发光）
