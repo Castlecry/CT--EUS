@@ -129,6 +129,14 @@
                   >
                     {{ isDrawingMode ? '结束选择' : '选择点位' }}
                   </button>
+                  <button 
+                    v-if="hasSelectedPoints" 
+                    class="normals-btn" 
+                    @click="toggleNormalsVisibility"
+                    :class="{ 'active': normalsVisible }"
+                  >
+                    {{ normalsVisible ? '隐藏已选点位法向量' : '显示已选点位法向量' }}
+                  </button>
                 </div>
               </div>
               <div class="model-detail-content">
@@ -309,6 +317,8 @@ const plyRenderer = ref(null);
 const loadingPly = ref(false);
 const hasPlyData = ref(false);
 const isDrawingMode = ref(false); // 线段绘制模式状态
+const hasSelectedPoints = ref(false); // 是否已选择点位
+const normalsVisible = ref(false); // 法向量是否可见
 
 // 模型颜色控制
 const selectedColorIndex = ref(0);
@@ -588,6 +598,8 @@ const clearAllModels = () => {
       console.error('清除PLY数据时出错:', error);
     } finally {
       hasPlyData.value = false;
+      hasSelectedPoints.value = false;
+      normalsVisible.value = false;
     }
   }
   
@@ -606,6 +618,10 @@ const loadModelPoints = async () => {
     plyRenderer: !!plyRenderer.value,
     loadingPly: loadingPly.value
   });
+  
+  // 重置选择点位和法向量状态
+  hasSelectedPoints.value = false;
+  normalsVisible.value = false;
   
   if (!selectedModelKey.value || !rendererReady.value || loadingPly.value) {
     console.log('loadModelPoints基本条件不满足，提前返回');
@@ -689,6 +705,12 @@ const toggleDrawingMode = () => {
       if (result !== undefined) {
         isDrawingMode.value = result;
         console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
+        
+        // 检查是否已有选择的点位
+        if (plyRenderer.value.hasSelectedPoints) {
+          hasSelectedPoints.value = plyRenderer.value.hasSelectedPoints();
+          console.log('检查已选择点位状态:', hasSelectedPoints.value);
+        }
       }
     } else {
       console.error('plyRenderer缺少toggleDrawing方法');
@@ -697,6 +719,40 @@ const toggleDrawingMode = () => {
   } catch (error) {
     console.error('切换绘制模式失败:', error);
     alert('切换绘制模式时发生错误，请重试');
+  }
+};
+
+// 切换法向量可见性
+const toggleNormalsVisibility = () => {
+  console.log('toggleNormalsVisibility开始执行', { 
+    selectedModelKey: selectedModelKey.value,
+    rendererReady: rendererReady.value,
+    plyRenderer: !!plyRenderer.value
+  });
+  
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value) {
+    console.log('toggleNormalsVisibility条件不满足，提前返回');
+    return;
+  }
+  
+  const organKey = selectedModelKey.value;
+  const organName = organKey; // 使用英文名称
+  
+  try {
+    if (plyRenderer.value.toggleNormalsVisibility) {
+      const result = plyRenderer.value.toggleNormalsVisibility(organName);
+      
+      if (result !== undefined) {
+        normalsVisible.value = result;
+        console.log(`法向量可见性已${normalsVisible.value ? '启用' : '禁用'}`);
+      }
+    } else {
+      console.error('plyRenderer缺少toggleNormalsVisibility方法');
+      alert('切换法向量可见性功能不可用，请刷新页面重试');
+    }
+  } catch (error) {
+    console.error('切换法向量可见性失败:', error);
+    alert('切换法向量可见性时发生错误，请重试');
   }
 };
 

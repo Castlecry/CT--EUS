@@ -116,6 +116,8 @@ class PlyRenderer {
       const pointsObject = this.renderPoints(points);
       // 渲染法向量
       const vectorsObject = this.renderNormals(points);
+      // 默认隐藏法向量
+      vectorsObject.visible = false;
 
       // 将对象添加到场景中
       if (this.modelRenderer && this.modelRenderer.scene) {
@@ -127,10 +129,28 @@ class PlyRenderer {
         this.vectorsObjects.set(organName, vectorsObject);
         this.pointsData.set(organName, points); // 存储原始点位数据用于吸附计算
         
-        // 重新渲染场景
+        // 存储法向量可见性状态
+        if (!this._normalsVisibility) {
+          this._normalsVisibility = new Map();
+        }
+        this._normalsVisibility.set(organName, false);
+        
+        // 重新渲染场景 - 避免Vue响应式代理与Three.js对象的冲突
         if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
-          this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
-          console.log(`成功渲染${organName}的点位和法向量，共${points.length}个点`);
+          try {
+            // 直接获取原始的渲染器、场景和相机，避免代理问题
+            const renderer = this.modelRenderer.renderer;
+            const scene = this.modelRenderer.scene;
+            const camera = this.modelRenderer.camera;
+            
+            // 使用原始对象进行渲染
+            renderer.render(scene, camera);
+            console.log(`成功渲染${organName}的点位和法向量，共${points.length}个点`);
+          } catch (renderError) {
+            console.error('渲染时发生错误:', renderError);
+            // 降级处理：不调用渲染方法，因为animate循环会自动渲染
+            console.log('跳过直接渲染，依赖动画循环更新视图');
+          }
         } else {
           console.error('缺少渲染所需的组件，无法重新渲染场景');
         }
@@ -316,43 +336,97 @@ class PlyRenderer {
    * 从鼠标位置获取最近的点位
    */
   getNearestPointFromMouse(event) {
-    if (!this.modelRenderer || !this.modelRenderer.camera || !this.currentModel) return null;
+    console.log('getNearestPointFromMouse 执行中', { event, currentModel: this.currentModel });
     
-    // 计算鼠标在标准化设备坐标中的位置
-    const rect = this.modelRenderer.renderer.domElement.getBoundingClientRect();
-    const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    // 创建射线
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera({ x: mouseX, y: mouseY }, this.modelRenderer.camera);
-    
-    // 检查是否点击在当前模型上
-    const model = this.modelRenderer.models?.get(this.currentModel);
-    if (!model) return null;
-    
-    const intersects = raycaster.intersectObject(model, true);
-    if (intersects.length === 0) return null;
-    
-    // 获取交点
-    const intersectionPoint = intersects[0].point;
-    
-    // 找到最近的点位
-    const points = this.pointsData.get(this.currentModel);
-    if (!points || points.length === 0) return null;
-    
-    let nearestPoint = null;
-    let minDistance = Infinity;
-    
-    for (const point of points) {
-      const distance = new THREE.Vector3(point.x, point.y, point.z).distanceTo(intersectionPoint);
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestPoint = point;
-      }
+    if (!this.modelRenderer || !this.modelRenderer.camera || !this.currentModel) {
+      console.log('条件不满足: 缺少渲染器、相机或当前模型');
+      return null;
     }
     
-    return nearestPoint;
+    try {
+      // 计算鼠标在标准化设备坐标中的位置
+      const rect = this.modelRenderer.renderer.domElement.getBoundingClientRect();
+      const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      console.log('鼠标标准化坐标:', { mouseX, mouseY });
+      
+      // 创建射线
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera({ x: mouseX, y: mouseY }, this.modelRenderer.camera);
+      
+      // 首先尝试直接检测点云对象
+      const pointsObject = this.pointsObjects.get(this.currentModel);
+      if (pointsObject) {
+        console.log('尝试检测点云对象');
+        const pointIntersects = raycaster.intersectObject(pointsObject, true);
+        if (pointIntersects.length > 0) {
+          console.log('检测到点云交点:', pointIntersects.length);
+          // 获取点索引
+          const index = Math.floor(pointIntersects[0].faceIndex / 3);
+          const points = this.pointsData.get(this.currentModel);
+          if (points && index >= 0 && index < points.length) {
+            console.log(`找到点云交点，索引: ${index}`);
+            return points[index];
+          }
+        }
+      }
+      
+      // 同时检查是否点击在当前模型上
+      const model = this.modelRenderer.models?.get(this.currentModel);
+      if (!model) {
+        console.log(`未找到模型: ${this.currentModel}`);
+        return null;
+      }
+      
+      console.log(`尝试检测模型: ${this.currentModel}`);
+      const modelIntersects = raycaster.intersectObject(model, true);
+      if (modelIntersects.length === 0) {
+        console.log('未检测到模型交点');
+        // 即使没有模型交点，也尝试从鼠标位置找到最近的点
+      }
+      
+      // 获取参考点（交点或射线方向上的点）
+      const referencePoint = modelIntersects.length > 0 ? 
+        modelIntersects[0].point : 
+        raycaster.ray.at(100); // 沿射线方向延伸100单位
+      
+      console.log('参考点位置:', referencePoint);
+      
+      // 找到最近的点位
+      const points = this.pointsData.get(this.currentModel);
+      if (!points || points.length === 0) {
+        console.log('没有点位数据');
+        return null;
+      }
+      
+      console.log(`查找${points.length}个点中的最近点`);
+      let nearestPoint = null;
+      let minDistance = Infinity;
+      const maxDistanceThreshold = 10; // 设置最大距离阈值
+      
+      for (const point of points) {
+        const pointVector = new THREE.Vector3(point.x, point.y, point.z);
+        const distance = pointVector.distanceTo(referencePoint);
+        
+        if (distance < minDistance) {
+          minDistance = distance;
+          nearestPoint = point;
+        }
+      }
+      
+      // 只有当最近点在合理距离范围内时才返回
+      if (nearestPoint && minDistance <= maxDistanceThreshold) {
+        console.log(`找到最近点，距离: ${minDistance.toFixed(4)}`);
+        return nearestPoint;
+      } else {
+        console.log(`最近点距离超出阈值: ${minDistance.toFixed(4)} > ${maxDistanceThreshold}`);
+        return null;
+      }
+    } catch (error) {
+      console.error('获取最近点时出错:', error);
+      return null;
+    }
   }
   
   /**
@@ -382,7 +456,14 @@ class PlyRenderer {
     // 创建线段对象
     this.tempLine = new THREE.Line(geometry, material);
     this.modelRenderer.scene.add(this.tempLine);
-    this.modelRenderer.render();
+    // 使用正确的渲染方式
+    if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+      try {
+        this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+      } catch (error) {
+        console.error('渲染临时线段失败:', error);
+      }
+    }
   }
   
   /**
@@ -411,9 +492,21 @@ class PlyRenderer {
     // 创建线段对象
     this.lineObject = new THREE.Line(geometry, material);
     this.modelRenderer.scene.add(this.lineObject);
-    this.modelRenderer.render();
     
-    console.log('线段绘制完成');
+    // 记录已选择的点位
+    this.selectedPoints = this.selectedPoints || [];
+    this.selectedPoints.push(this.startPoint, this.endPoint);
+    
+    // 使用正确的渲染方式
+    if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+      try {
+        this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+      } catch (error) {
+        console.error('渲染最终线段失败:', error);
+      }
+    }
+    
+    console.log('线段绘制完成，已选择点位数量:', this.selectedPoints.length);
   }
   
   /**
@@ -425,7 +518,14 @@ class PlyRenderer {
       this.tempLine.geometry.dispose();
       this.tempLine.material.dispose();
       this.tempLine = null;
-      this.modelRenderer.render();
+      // 使用正确的渲染方式
+      if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+        try {
+          this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+        } catch (error) {
+          console.error('移除临时线段后渲染失败:', error);
+        }
+      }
     }
   }
   
@@ -438,7 +538,14 @@ class PlyRenderer {
       this.lineObject.geometry.dispose();
       this.lineObject.material.dispose();
       this.lineObject = null;
-      this.modelRenderer.render();
+      // 使用正确的渲染方式
+      if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+        try {
+          this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+        } catch (error) {
+          console.error('清除线段后渲染失败:', error);
+        }
+      }
     }
   }
   
@@ -568,9 +675,23 @@ class PlyRenderer {
       this.pointsData.delete(organName);
     }
     
+    // 清除法向量可见性状态
+    if (this._normalsVisibility && this._normalsVisibility.has(organName)) {
+      this._normalsVisibility.delete(organName);
+    }
+    
+    // 清除已选择的点位
+    if (this.currentModel === organName) {
+      this.selectedPoints = [];
+    }
+    
     // 如果有场景引用，重新渲染
-    if (this.modelRenderer && this.modelRenderer.render) {
-      this.modelRenderer.render();
+    if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+      try {
+        this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+      } catch (error) {
+        console.error('清除PLY数据后渲染失败:', error);
+      }
     }
   }
 
@@ -588,6 +709,10 @@ class PlyRenderer {
     
     // 清除线段
     this.clearLine();
+    
+    // 清除所有已选择的点位和法向量可见性状态
+    this.selectedPoints = [];
+    this._normalsVisibility = new Map();
   }
 
   /**
@@ -611,6 +736,71 @@ class PlyRenderer {
     this.onMouseDown = this.onMouseDown.bind(this);
     this.onMouseMove = this.onMouseMove.bind(this);
     this.onMouseUp = this.onMouseUp.bind(this);
+  }
+  
+  /**
+   * 切换指定器官法向量的可见性
+   * @param {string} organName - 器官名称
+   * @returns {boolean} - 切换后的可见性状态
+   */
+  toggleNormalsVisibility(organName) {
+    try {
+      if (!this.modelRenderer || !this._initialized) {
+        console.error('PlyRenderer未正确初始化');
+        return false;
+      }
+      
+      // 检查是否有该器官的法向量数据
+      if (!this.vectorsObjects.has(organName)) {
+        console.error(`未找到器官${organName}的法向量数据`);
+        return false;
+      }
+      
+      // 获取法向量对象并切换可见性
+      const vectorsObject = this.vectorsObjects.get(organName);
+      vectorsObject.visible = !vectorsObject.visible;
+      
+      // 更新可见性状态存储
+      if (!this._normalsVisibility) {
+        this._normalsVisibility = new Map();
+      }
+      this._normalsVisibility.set(organName, vectorsObject.visible);
+      
+      // 重新渲染场景
+      if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+        try {
+          this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+        } catch (error) {
+          console.error('切换法向量可见性后渲染失败:', error);
+        }
+      }
+      
+      console.log(`器官${organName}的法向量可见性已切换为:`, vectorsObject.visible);
+      return vectorsObject.visible;
+    } catch (error) {
+      console.error('切换法向量可见性时出错:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * 获取指定器官法向量的可见性状态
+   * @param {string} organName - 器官名称
+   * @returns {boolean} - 当前可见性状态
+   */
+  getNormalsVisibility(organName) {
+    if (!this._normalsVisibility) {
+      return false;
+    }
+    return this._normalsVisibility.get(organName) || false;
+  }
+  
+  /**
+   * 检查是否已选择点位
+   * @returns {boolean} - 是否已选择点位
+   */
+  hasSelectedPoints() {
+    return this.selectedPoints && this.selectedPoints.length > 0;
   }
 }
 

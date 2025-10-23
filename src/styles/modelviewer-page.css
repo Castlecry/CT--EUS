@@ -467,7 +467,36 @@ header {
   border-color: #a93226;
 }
 
-.detail-row {
+/* 法向量控制按钮样式 */
+.normals-btn {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.3s;
+  border: 1px solid #3498db;
+  margin-left: 8px;
+}
+
+.normals-btn:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
+.normals-btn.active {
+  background-color: #8e44ad;
+  border-color: #8e44ad;
+}
+
+.normals-btn.active:hover {
+  background-color: #7d3c98;
+  border-color: #7d3c98;
+}
+
+detail-row {
   display: flex;
   margin-bottom: 15px;
   padding-bottom: 15px;
