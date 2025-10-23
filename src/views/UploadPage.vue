@@ -25,15 +25,15 @@
       <!-- 文件列表 -->
       <div v-if="step === 1 && selectedFiles.length > 0" class="file-list">
         <h3>已选择的文件</h3>
+        <button @click="uploadFiles" class="process-button" :disabled="isUploading">
+          <span v-if="isUploading" class="loading-icon">⏳</span>
+          {{ isUploading ? '上传中...' : '上传文件' }}
+        </button>
         <ul>
           <li v-for="(file, index) in selectedFiles" :key="index">
             {{ file.name }} <button @click="removeFile(index)" class="remove-btn">移除</button>
           </li>
         </ul>
-        <button @click="uploadFiles" class="process-button" :disabled="isUploading">
-          <span v-if="isUploading" class="loading-icon">⏳</span>
-          {{ isUploading ? '上传中...' : '上传文件' }}
-        </button>
       </div>
 
       <!-- 上传成功，等待处理 -->

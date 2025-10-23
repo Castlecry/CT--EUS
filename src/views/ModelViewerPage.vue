@@ -14,18 +14,19 @@
     <main class="main-content">
       <!-- 器官选择区域 - 作为可切换的视图 -->
       <div class="organ-selection-section">
-        <!-- 切换按钮 -->
-        <div class="view-toggle-buttons">
-          <button @click="previousView" class="toggle-btn" :disabled="currentViewIndex === 0">
-            ‹
-          </button>
-          <div class="view-indicator">
-            {{ currentViewIndex + 1 }} / {{ totalViews }}
+        <div class="organ-selection-content">
+          <!-- 切换按钮 -->
+          <div class="view-toggle-buttons">
+            <button @click="previousView" class="toggle-btn" :disabled="currentViewIndex === 0">
+              ‹
+            </button>
+            <div class="view-indicator">
+              {{ currentViewIndex + 1 }} / {{ totalViews }}
+            </div>
+            <button @click="nextView" class="toggle-btn" :disabled="currentViewIndex === totalViews - 1">
+              ›
+            </button>
           </div>
-          <button @click="nextView" class="toggle-btn" :disabled="currentViewIndex === totalViews - 1">
-            ›
-          </button>
-        </div>
         
         <!-- 器官选择视图 -->
         <div v-if="currentViewType === 'select'" class="organ-selection-view">
@@ -112,6 +113,21 @@
                     :class="{ 'visible': modelVisibility, 'hidden': !modelVisibility }"
                   >
                     {{ modelVisibility ? '隐藏模型' : '显示模型' }}
+                  </button>
+                  <button 
+                    class="points-btn" 
+                    @click="loadModelPoints"
+                    :disabled="loadingPly"
+                  >
+                    {{ loadingPly ? '获取中...' : (hasPlyData ? '重新获取点位' : '获取点位') }}
+                  </button>
+                  <button 
+                    class="draw-btn" 
+                    @click="toggleDrawingMode"
+                    :disabled="!hasPlyData"
+                    :class="{ 'active': isDrawingMode }"
+                  >
+                    {{ isDrawingMode ? '结束选择' : '选择点位' }}
                   </button>
                 </div>
               </div>
@@ -203,6 +219,7 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
       <!-- 模型查看区域 - 固定显示3D模型 -->
       <div class="model-viewer-section">
@@ -228,10 +245,12 @@
 </template>
 
 <script setup>
+import '../styles/modelviewer-page.css';
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getOrganModel } from '../api/dicom.js';
+import { getOrganModel, getOrganPlyModel } from '../api/dicom.js';
 import ModelRenderer from '../utils/modelRenderer.js';
+import PlyRenderer from '../utils/plyRenderer.js';
 import {
   presetColors,
   rgbToHex,
@@ -285,6 +304,12 @@ const selectedModelKey = ref(null);
 // 模型显示控制
 const modelVisibility = ref(true);
 
+// PLY渲染器和点位显示状态
+const plyRenderer = ref(null);
+const loadingPly = ref(false);
+const hasPlyData = ref(false);
+const isDrawingMode = ref(false); // 线段绘制模式状态
+
 // 模型颜色控制
 const selectedColorIndex = ref(0);
 const customRgb = ref({ r: 204, g: 204, b: 255 });
@@ -309,6 +334,18 @@ watch(selectedModelKey, async (newKey) => {
       selectedColorIndex.value = matchingIndex !== -1 ? matchingIndex : 0;
       showCustomColor.value = matchingIndex === -1;
     }
+    
+    // 检查是否已加载PLY数据
+    if (plyRenderer.value) {
+      hasPlyData.value = plyRenderer.value.hasPlyData(organList[newKey]);
+      // 如果切换了模型，退出绘制模式
+      if (plyRenderer.value.getDrawingState()) {
+        plyRenderer.value.stopDrawing();
+        isDrawingMode.value = false;
+      }
+    }
+  } else {
+    hasPlyData.value = false;
   }
 });
 
@@ -355,6 +392,8 @@ onMounted(async () => {
     }
     renderer.value = new ModelRenderer('modelContainer');
     rendererReady.value = true;
+    // 初始化PLY渲染器
+    plyRenderer.value = new PlyRenderer(renderer.value);
   } catch (error) {
     console.error('初始化渲染器失败:', error);
     alert('无法初始化3D查看器，请刷新页面重试');
@@ -370,6 +409,20 @@ onMounted(async () => {
 
 // 清理资源
 onUnmounted(() => {
+  if (plyRenderer.value) {
+    try {
+      // 停止绘制模式
+      if (plyRenderer.value.getDrawingState()) {
+        plyRenderer.value.stopDrawing();
+      }
+      plyRenderer.value.clearAllPlyData();
+    } catch (error) {
+      console.error('清理PLY渲染器资源失败:', error);
+    } finally {
+      plyRenderer.value = null;
+    }
+  }
+  
   if (renderer.value && rendererReady.value) {
     try {
       renderer.value.clearAllModels();
@@ -488,11 +541,68 @@ const resetView = () => {
 const clearAllModels = () => {
   if (!renderer.value) return;
   
+  // 清除PLY数据
+  if (plyRenderer.value) {
+    // 停止绘制模式
+    if (plyRenderer.value.getDrawingState()) {
+      plyRenderer.value.stopDrawing();
+      isDrawingMode.value = false;
+    }
+    plyRenderer.value.clearAllPlyData();
+    hasPlyData.value = false;
+  }
+  
   renderer.value.clearAllModels();
   loadedOrgans.value = [];
   allLoaded.value = false;
   updateViews(); // 更新视图列表
   console.log('所有模型已清除');
+};
+
+// 获取并渲染点位和法向量
+const loadModelPoints = async () => {
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || loadingPly.value) return;
+  
+  try {
+    loadingPly.value = true;
+    const organKey = selectedModelKey.value;
+    const organName = organKey; // 使用英文名称调用API
+    
+    // 如果正在绘制，先退出绘制模式
+    if (plyRenderer.value.getDrawingState()) {
+      plyRenderer.value.stopDrawing();
+      isDrawingMode.value = false;
+    }
+    
+    const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, getOrganPlyModel);
+    
+    if (success) {
+      hasPlyData.value = true;
+      console.log(`成功加载${organList[organKey]}的点位数据`);
+    } else {
+      alert(`加载${organList[organKey]}的点位数据失败，请重试`);
+    }
+  } catch (error) {
+    console.error('加载点位数据失败:', error);
+    alert('加载点位数据时发生错误，请重试');
+  } finally {
+    loadingPly.value = false;
+  }
+};
+
+// 切换线段绘制模式
+const toggleDrawingMode = () => {
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || !hasPlyData.value) return;
+  
+  const organKey = selectedModelKey.value;
+  const organName = organKey; // 使用英文名称
+  
+  const result = plyRenderer.value.toggleDrawing(organName);
+  
+  if (result !== undefined) {
+    isDrawingMode.value = result;
+    console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
+  }
 };
 
 // 更新视图列表
@@ -632,630 +742,3 @@ const switchToModel = (organKey, toDetail = true) => {
 };
 </script>
 
-<style scoped>
-/* --- 最终修复版样式 --- */
-
-/* 全局与重置 */
-:global(*) {
-  box-sizing: border-box;
-}
-
-:global(html), :global(body) {
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-:global(#app) {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-/* 根容器：使用 CSS Grid 布局，这是最稳健的方案 */
-.model-viewer-container {
-  display: grid;
-  grid-template-rows: auto 1fr; /* 头部高度自适应，主内容区占据所有剩余空间 */
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-/* 头部 */
-header {
-  grid-row: 1 / 2;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px 30px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  border-bottom: 1px solid #e9ecef;
-}
-.header-content { display: flex; align-items: center; gap: 15px; }
-.logo-icon { font-size: 2rem; }
-.title-container .main-title { color: #2c3e50; margin: 0; font-size: 1.6rem; }
-.title-container .subtitle { color: #6c757d; margin: 4px 0 0; font-size: 0.9rem; }
-.back-link { color: #4a90e2; text-decoration: none; font-weight: 500; padding: 8px 16px; border-radius: 6px; transition: background-color 0.2s ease; }
-.back-link:hover { background-color: #f1f7ff; }
-
-/* 主内容区域 */
-.main-content {
-  grid-row: 2 / 3;
-  display: flex;
-  flex-direction: column;
-  padding: 20px;
-  gap: 20px;
-  min-height: 0;
-  overflow: hidden;
-  width: 100vw;
-  height: 100%;
-  flex: 1;
-  margin: 0;
-  box-sizing: border-box;
-  position: relative;
-  max-width: 100vw;
-  left: 0;
-  right: 0;
-}
-
-/* 器官选择区域 */
-.organ-selection-section {
-  flex-shrink: 0;
-  background-color: white;
-  border-radius: 12px;
-  padding: 15px 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  margin: 0;
-  max-width: 100%;
-  box-sizing: border-box;
-  position: relative;
-  left: 0;
-  right: 0;
-}
-
-/* 视图切换按钮（在器官选择区域内） */
-.organ-selection-section .view-toggle-buttons {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 15px 0;
-  margin-bottom: 10px;
-  background-color: #f8f9fa;
-  border-radius: 6px;
-}
-.organ-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #f1f2f6;
-  cursor: pointer;
-}
-.organ-panel-header h3 { margin: 0; color: #2c3e50; font-size: 1.1rem; }
-.toggle-btn { background: none; border: none; font-size: 1.5rem; line-height: 1; cursor: pointer; color: #6c757d; padding: 0; }
-
-.organ-buttons-container {
-  overflow: hidden;
-  transition: max-height 0.35s ease-in-out;
-}
-
-.organ-buttons { display: flex; flex-wrap: wrap; gap: 12px; padding: 20px 0 10px; }
-.organ-btn {
-  flex: 1 1 auto;
-  min-width: 110px;
-  background-color: #f8f9fa; border: 1px solid #dee2e6;
-  padding: 10px 8px; border-radius: 6px; cursor: pointer; transition: all 0.2s;
-  font-size: 0.9rem; text-align: center;
-}
-.organ-btn:hover:not(:disabled) { border-color: #4a90e2; color: #4a90e2; background-color: #f1f7ff; }
-.organ-btn.loaded { background-color: #e8f5e9; border-color: #c3e6cb; color: #155724; font-weight: 500; }
-.organ-btn:disabled { cursor: not-allowed; opacity: 0.7; }
-
-.organ-panel-footer { display: flex; justify-content: center; padding-top: 20px; border-top: 1px solid #f1f2f6; }
-.load-all-btn { background-color: #4a90e2; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: background-color 0.2s; }
-.load-all-btn:hover:not(:disabled) { background-color: #357abd; }
-.load-all-btn:disabled { background-color: #6c757d; cursor: not-allowed; opacity: 0.8; }
-
-/* 模型查看区域 */
-.model-viewer-section {
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  position: relative;
-  left: 0;
-  right: 0;
-  max-width: 100%;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-}
-
-/* 视图切换容器 */
-.view-toggle-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  border-radius: 0;
-  overflow: hidden;
-  height: 100%;
-  min-height: 0;
-  width: 100%;
-}
-
-.toggle-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 18px;
-  transition: background 0.3s ease;
-  margin: 0 10px;
-}
-
-.toggle-btn:hover:not(:disabled) {
-  background: #5a6268;
-}
-
-.toggle-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.view-indicator {
-  font-size: 14px;
-  color: #6c757d;
-  min-width: 40px;
-  text-align: center;
-}
-
-/* 视图内容 */
-.view-content {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  min-height: 0;
-  height: 100%;
-  width: 100%;
-  display: flex; /* 添加flex布局 */
-  flex-direction: column; /* 垂直方向布局 */
-}
-
-/* 模型信息展示框 */
-.model-info-container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background-color: white;
-  min-height: 450px;
-  flex: 1; /* 占据所有可用空间 */
-}
-
-.model-info-header {
-  display: flex;
-  align-items: center;
-  padding: 15px 20px;
-  border-bottom: 1px solid #e9ecef;
-  gap: 15px;
-}
-
-.model-info-header h3 {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 1.1rem;
-  flex: 1;
-}
-
-.model-count {
-  margin-left: 10px;
-  color: #6c757d;
-  font-size: 0.9rem;
-}
-
-.back-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.3s ease;
-  font-size: 14px;
-}
-
-.back-btn:hover {
-  background: #5a6268;
-}
-
-.model-info-content {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  height: 100%; /* 确保高度占满 */
-}
-
-.no-models {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #6c757d;
-  text-align: center;
-}
-
-.no-models p {
-  margin: 5px 0;
-}
-
-.model-buttons-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 15px;
-}
-
-/* 模型详情卡片样式 */
-.model-detail-card {
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.model-detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #e9ecef;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.model-controls-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.model-detail-header h4 {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 1.2rem;
-}
-
-.view-model-btn {
-  background-color: #4a90e2;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: background-color 0.2s ease;
-}
-
-.view-model-btn:hover {
-  background-color: #357abd;
-}
-
-.visibility-btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-  border: 1px solid #dee2e6;
-}
-
-.visibility-btn.visible {
-  background-color: #28a745;
-  color: white;
-  border-color: #28a745;
-}
-
-.visibility-btn.visible:hover {
-  background-color: #218838;
-  border-color: #1e7e34;
-}
-
-.visibility-btn.hidden {
-  background-color: #6c757d;
-  color: white;
-  border-color: #6c757d;
-}
-
-.visibility-btn.hidden:hover {
-  background-color: #5a6268;
-  border-color: #545b62;
-}
-
-.detail-row {
-  display: flex;
-  margin-bottom: 15px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.detail-row:last-child {
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.detail-label {
-  font-weight: 500;
-  color: #495057;
-  min-width: 100px;
-  flex-shrink: 0;
-}
-
-.detail-value {
-  color: #2c3e50;
-  flex: 1;
-}
-
-.detail-row.description {
-  flex-direction: column;
-}
-
-.detail-row.description .detail-label {
-  margin-bottom: 8px;
-}
-
-/* 颜色选择器样式 */
-.color-selection-section {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 2px solid #e9ecef;
-}
-
-.color-selection-section h5 {
-  margin: 0 0 15px 0;
-  color: #2c3e50;
-  font-size: 1rem;
-}
-
-/* 预设颜色选择 */
-.preset-colors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.color-option {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.color-option:hover {
-  transform: scale(1.1);
-}
-
-.color-option.selected {
-  border-color: #2c3e50;
-  box-shadow: 0 0 0 2px white, 0 0 0 4px #2c3e50;
-}
-
-/* 自定义RGB颜色选择 */
-.custom-color-section {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  flex-wrap: wrap;
-}
-
-.color-preview {
-  width: 50px;
-  height: 50px;
-  border-radius: 6px;
-  border: 1px solid #dee2e6;
-  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.1);
-}
-
-.rgb-inputs {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.rgb-input-group {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.rgb-input-group label {
-  font-weight: 500;
-  color: #495057;
-  min-width: 15px;
-}
-
-.rgb-input-group input {
-  width: 60px;
-  padding: 6px 8px;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  text-align: center;
-  font-size: 0.9rem;
-}
-
-.rgb-input-group input:focus {
-  outline: none;
-  border-color: #4a90e2;
-  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.25);
-}
-
-.apply-color-btn {
-  background-color: #17a2b8;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: background-color 0.2s ease;
-}
-
-.apply-color-btn:hover {
-  background-color: #138496;
-}
-
-/* 响应式调整 */
-@media (max-width: 768px) {
-  .model-detail-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .model-controls-buttons {
-    width: 100%;
-    justify-content: space-between;
-  }
-  
-  .custom-color-section {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  .rgb-inputs {
-    width: 100%;
-  }
-}
-
-.model-info-btn {
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 15px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 0.95rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 80px;
-}
-
-.model-info-btn:hover {
-  border-color: #4a90e2;
-  color: #4a90e2;
-  background-color: #f1f7ff;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-/* 模型容器包装器 */
-.model-container-wrapper {
-  flex: 1;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  overflow: hidden;
-  min-height: 0;
-  height: 100%;
-  width: 100%; /* 确保宽度占满 */
-  background-color: white;
-}
-
-/* 模型控制按钮 */
-.model-controls {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-  display: flex;
-  gap: 10px;
-  z-index: 10;
-}
-
-.control-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.3s ease;
-  font-size: 14px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-.control-btn:hover:not(:disabled) {
-  background: #5a6268;
-}
-
-.control-btn.danger {
-  background: #dc3545;
-}
-
-.control-btn.danger:hover:not(:disabled) {
-  background: #c82333;
-}
-
-.control-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.model-container {
-  flex: 1;
-  background-color: #f0f0f0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 0 0 12px 12px;
-  width: 100%;
-  height: 100%;
-  min-height: 0; /* 添加最小高度为0 */
-}
-#modelContainer {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  flex: 1; /* 占据所有可用空间 */
-}
-.placeholder-text {
-  color: #aaa;
-  font-size: 1.2rem;
-  font-weight: 500;
-}
-
-/* 加载中动画 */
-.loading::after {
-  content: ''; position: absolute; top: 50%; left: 50%;
-  width: 16px; height: 16px; margin-top: -8px; margin-left: -8px;
-  border: 2px solid rgba(74, 144, 226, 0.3); border-top-color: #4a90e2;
-  border-radius: 50%; animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>

@@ -365,16 +365,15 @@ class ModelRenderer {
       if (child.isMesh) {
         meshCount++;
         
-        // 保存当前材质状态
+        // 保存当前材质状态，保留颜色状态标志
         materials.push({
           object: child,
           originalOpacity: child.material.opacity,
           originalTransparent: child.material.transparent,
-          originalColor: child.material._isPresetColor ? child.material._presetColor.clone() : child.material._initialColor.clone(),
-          isPresetColor: child.material._isPresetColor
+          isPresetColor: child.material._isPresetColor // 只保存颜色状态标志
         });
         
-        // 保持当前颜色，设置为不透明（实体化）
+        // 保持当前颜色状态，使用对应的颜色
         const currentColor = child.material._isPresetColor ? child.material._presetColor : child.material._initialColor;
         const newMaterial = new THREE.MeshPhongMaterial({
           color: currentColor,
@@ -438,21 +437,24 @@ class ModelRenderer {
       materials.forEach(({ object, originalOpacity, originalTransparent, originalColor, isPresetColor }) => {
         try {
           // 为每个网格创建新的原始材质实例
+          // 根据颜色状态标志设置正确的颜色
+          const currentColor = isPresetColor ? object.material._presetColor : object.material._initialColor;
+          
           const newOriginalMaterial = new THREE.MeshPhongMaterial({
-            color: originalColor,
-            transparent: true, // 保持透明状态
+            color: currentColor,
+            transparent: true,
             opacity: 0.6, // 恢复为初始透明度0.6
             side: THREE.DoubleSide,
-            emissive: 0x000000, // 重置发光为黑色（无发光）
-            emissiveIntensity: 0, // 重置发光强度为0
-            shininess: 30, // 添加光泽度
-            specular: 0x222222, // 添加镜面反射
+            emissive: 0x000000,
+            emissiveIntensity: 0,
+            shininess: 30,
+            specular: 0x222222,
             polygonOffset: true,
             polygonOffsetFactor: 1,
             polygonOffsetUnits: 1
           });
           
-          // 存储状态信息
+          // 保存颜色状态信息
           newOriginalMaterial._isPresetColor = isPresetColor;
           newOriginalMaterial._initialColor = object.material._initialColor;
           newOriginalMaterial._presetColor = object.material._presetColor;
