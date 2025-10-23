@@ -5,24 +5,79 @@ import * as THREE from 'three';
  */
 class PlyRenderer {
   constructor(modelRenderer) {
-    this.modelRenderer = modelRenderer; // 传入现有的模型渲染器实例
-    this.pointsObjects = new Map(); // 存储已渲染的点云对象
-    this.vectorsObjects = new Map(); // 存储已渲染的法向量对象
-    this.pointsData = new Map(); // 存储原始点位数据，用于吸附计算
+    // 检查modelRenderer是否有效
+    if (!modelRenderer) {
+      throw new Error('ModelRenderer实例不能为空');
+    }
     
-    // 线段绘制相关状态
-    this.isDrawing = false; // 是否处于绘制状态
-    this.currentModel = null; // 当前绘制的模型
-    this.lineObject = null; // 当前绘制的线段对象
-    this.startPoint = null; // 线段起点
-    this.endPoint = null; // 线段终点
-    this.tempLine = null; // 临时线段（拖动时）
+    // 保存对主渲染器的引用
+    this.modelRenderer = modelRenderer;
     
-    // 事件处理函数引用
-    this.onMouseDown = this.onMouseDown.bind(this);
-    this.onMouseMove = this.onMouseMove.bind(this);
-    this.onMouseUp = this.onMouseUp.bind(this);
-    this.onModelClick = this.onModelClick.bind(this);
+    // 延迟初始化，确保ModelRenderer已完全初始化
+    this._initialized = false;
+    this._initPromise = this._initialize();
+  }
+  
+  /**
+   * 异步初始化PlyRenderer
+   * @private
+   */
+  async _initialize() {
+    try {
+      // 等待ModelRenderer完全初始化
+      await new Promise(resolve => {
+        const checkInit = () => {
+          if (this.modelRenderer && 
+              this.modelRenderer.scene && 
+              this.modelRenderer.camera && 
+              this.modelRenderer.renderer && 
+              this.modelRenderer.controls) {
+            resolve();
+          } else {
+            setTimeout(checkInit, 50);
+          }
+        };
+        checkInit();
+      });
+      
+      // 获取渲染器组件
+      this.scene = this.modelRenderer.scene;
+      this.camera = this.modelRenderer.camera;
+      this.renderer = this.modelRenderer.renderer;
+      this.controls = this.modelRenderer.controls;
+      
+      // 初始化PLY数据存储
+      this.pointsObjects = new Map(); // 存储已渲染的点云对象
+      this.vectorsObjects = new Map(); // 存储已渲染的法向量对象
+      this.pointsData = new Map(); // 存储原始点位数据，用于吸附计算
+      
+      // 线段绘制相关状态
+      this.isDrawing = false; // 是否处于绘制状态
+      this.currentModel = null; // 当前绘制的模型
+      this.lineObject = null; // 当前绘制的线段对象
+      this.startPoint = null; // 线段起点
+      this.endPoint = null; // 线段终点
+      this.tempLine = null; // 临时线段（拖动时）
+      
+      // 事件处理函数引用 - 延迟到方法定义后再绑定
+      this._bindEventHandlers();
+      
+      this._initialized = true;
+      console.log('PlyRenderer初始化完成');
+    } catch (error) {
+      console.error('PlyRenderer初始化失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 确保PlyRenderer已初始化
+   * @private
+   */
+  async _ensureInitialized() {
+    if (!this._initialized) {
+      await this._initPromise;
+    }
   }
 
   /**
@@ -33,6 +88,12 @@ class PlyRenderer {
    */
   async loadAndRenderPlyPoints(organName, getOrganPlyModel) {
     try {
+      // 确保PlyRenderer已初始化
+      if (!this.modelRenderer || !this.modelRenderer.scene) {
+        console.error('PlyRenderer未正确初始化');
+        return false;
+      }
+      
       // 检查是否已有该器官的点位数据，如果有则先清除
       this.clearPlyData(organName);
 
@@ -527,12 +588,26 @@ class PlyRenderer {
   }
 
   /**
-   * 检查是否已为指定器官加载了PLY数据
-   * @param {string} organName - 器官名称
-   * @returns {boolean} - 是否已加载
-   */
+ * 检查是否已为指定器官加载了PLY数据
+ * @param {string} organName - 器官名称
+ * @returns {boolean} - 是否已加载
+ */
   hasPlyData(organName) {
+    // 如果还未初始化，返回false
+    if (!this._initialized) {
+      return false;
+    }
     return this.pointsObjects.has(organName) && this.vectorsObjects.has(organName);
+  }
+
+  /**
+   * 绑定事件处理函数
+   * @private
+   */
+  _bindEventHandlers() {
+    this.onMouseDown = this.onMouseDown.bind(this);
+    this.onMouseMove = this.onMouseMove.bind(this);
+    this.onMouseUp = this.onMouseUp.bind(this);
   }
 }
 

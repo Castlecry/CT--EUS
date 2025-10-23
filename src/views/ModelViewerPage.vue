@@ -395,10 +395,33 @@ onMounted(async () => {
     if (placeholder) {
       container.removeChild(placeholder);
     }
+    
+    // 初始化ModelRenderer
     renderer.value = new ModelRenderer('modelContainer');
+    
+    // 等待渲染器完全初始化
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // 检查渲染器是否正确初始化
+    if (!renderer.value || !renderer.value.scene || !renderer.value.camera || !renderer.value.renderer) {
+      throw new Error('ModelRenderer初始化不完整');
+    }
+    
     rendererReady.value = true;
+    
     // 初始化PLY渲染器
-    plyRenderer.value = new PlyRenderer(renderer.value);
+    try {
+      plyRenderer.value = new PlyRenderer(renderer.value);
+      // 等待PLY渲染器异步初始化完成
+      if (plyRenderer.value._initPromise) {
+        await plyRenderer.value._initPromise;
+      }
+      console.log('PLY渲染器初始化成功');
+    } catch (plyError) {
+      console.error('PLY渲染器初始化失败:', plyError);
+      // 不抛出错误，允许主渲染器继续工作
+      plyRenderer.value = null;
+    }
   } catch (error) {
     console.error('初始化渲染器失败:', error);
     alert('无法初始化3D查看器，请刷新页面重试');
@@ -584,8 +607,15 @@ const loadModelPoints = async () => {
     loadingPly: loadingPly.value
   });
   
-  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || loadingPly.value) {
-    console.log('loadModelPoints条件不满足，提前返回');
+  if (!selectedModelKey.value || !rendererReady.value || loadingPly.value) {
+    console.log('loadModelPoints基本条件不满足，提前返回');
+    return;
+  }
+  
+  // 检查PLY渲染器是否可用
+  if (!plyRenderer.value) {
+    console.error('PLY渲染器未初始化');
+    alert('PLY渲染器未初始化，请刷新页面重试');
     return;
   }
   
@@ -595,6 +625,17 @@ const loadModelPoints = async () => {
     const organName = organKey; // 使用英文名称调用API
     
     console.log(`准备加载${organList[organKey]}的点位数据`);
+    
+    // 等待PLY渲染器初始化完成
+    if (plyRenderer.value._initPromise) {
+      try {
+        await plyRenderer.value._initPromise;
+      } catch (initError) {
+        console.error('PLY渲染器初始化失败:', initError);
+        alert('PLY渲染器初始化失败，请刷新页面重试');
+        return;
+      }
+    }
     
     // 如果正在绘制，先退出绘制模式
     if (plyRenderer.value.getDrawingState && typeof plyRenderer.value.getDrawingState === 'function' && 
