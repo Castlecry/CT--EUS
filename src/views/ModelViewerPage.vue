@@ -336,12 +336,17 @@ watch(selectedModelKey, async (newKey) => {
     }
     
     // 检查是否已加载PLY数据
-    if (plyRenderer.value) {
-      hasPlyData.value = plyRenderer.value.hasPlyData(organList[newKey]);
-      // 如果切换了模型，退出绘制模式
-      if (plyRenderer.value.getDrawingState()) {
-        plyRenderer.value.stopDrawing();
-        isDrawingMode.value = false;
+    if (plyRenderer.value && typeof plyRenderer.value.hasPlyData === 'function') {
+      try {
+        hasPlyData.value = plyRenderer.value.hasPlyData(organList[newKey]);
+        // 如果切换了模型，退出绘制模式
+        if (plyRenderer.value.getDrawingState && plyRenderer.value.getDrawingState() && plyRenderer.value.stopDrawing) {
+          plyRenderer.value.stopDrawing();
+          isDrawingMode.value = false;
+        }
+      } catch (error) {
+        console.error('检查PLY数据状态时出错:', error);
+        hasPlyData.value = false;
       }
     }
   } else {
@@ -412,10 +417,13 @@ onUnmounted(() => {
   if (plyRenderer.value) {
     try {
       // 停止绘制模式
-      if (plyRenderer.value.getDrawingState()) {
+      if (plyRenderer.value.getDrawingState && typeof plyRenderer.value.getDrawingState === 'function' && 
+          plyRenderer.value.getDrawingState() && plyRenderer.value.stopDrawing) {
         plyRenderer.value.stopDrawing();
       }
-      plyRenderer.value.clearAllPlyData();
+      if (plyRenderer.value.clearAllPlyData) {
+        plyRenderer.value.clearAllPlyData();
+      }
     } catch (error) {
       console.error('清理PLY渲染器资源失败:', error);
     } finally {
@@ -543,13 +551,21 @@ const clearAllModels = () => {
   
   // 清除PLY数据
   if (plyRenderer.value) {
-    // 停止绘制模式
-    if (plyRenderer.value.getDrawingState()) {
-      plyRenderer.value.stopDrawing();
-      isDrawingMode.value = false;
+    try {
+      // 停止绘制模式
+      if (plyRenderer.value.getDrawingState && typeof plyRenderer.value.getDrawingState === 'function' && 
+          plyRenderer.value.getDrawingState() && plyRenderer.value.stopDrawing) {
+        plyRenderer.value.stopDrawing();
+        isDrawingMode.value = false;
+      }
+      if (plyRenderer.value.clearAllPlyData) {
+        plyRenderer.value.clearAllPlyData();
+      }
+    } catch (error) {
+      console.error('清除PLY数据时出错:', error);
+    } finally {
+      hasPlyData.value = false;
     }
-    plyRenderer.value.clearAllPlyData();
-    hasPlyData.value = false;
   }
   
   renderer.value.clearAllModels();
@@ -561,26 +577,44 @@ const clearAllModels = () => {
 
 // 获取并渲染点位和法向量
 const loadModelPoints = async () => {
-  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || loadingPly.value) return;
+  console.log('loadModelPoints开始执行', { 
+    selectedModelKey: selectedModelKey.value,
+    rendererReady: rendererReady.value,
+    plyRenderer: !!plyRenderer.value,
+    loadingPly: loadingPly.value
+  });
+  
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || loadingPly.value) {
+    console.log('loadModelPoints条件不满足，提前返回');
+    return;
+  }
   
   try {
     loadingPly.value = true;
     const organKey = selectedModelKey.value;
     const organName = organKey; // 使用英文名称调用API
     
+    console.log(`准备加载${organList[organKey]}的点位数据`);
+    
     // 如果正在绘制，先退出绘制模式
-    if (plyRenderer.value.getDrawingState()) {
+    if (plyRenderer.value.getDrawingState && typeof plyRenderer.value.getDrawingState === 'function' && 
+        plyRenderer.value.getDrawingState() && plyRenderer.value.stopDrawing) {
       plyRenderer.value.stopDrawing();
       isDrawingMode.value = false;
     }
     
-    const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, getOrganPlyModel);
-    
-    if (success) {
-      hasPlyData.value = true;
-      console.log(`成功加载${organList[organKey]}的点位数据`);
+    if (plyRenderer.value.loadAndRenderPlyPoints) {
+      const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, getOrganPlyModel);
+      
+      if (success) {
+        hasPlyData.value = true;
+        console.log(`成功加载${organList[organKey]}的点位数据`);
+      } else {
+        alert(`加载${organList[organKey]}的点位数据失败，请重试`);
+      }
     } else {
-      alert(`加载${organList[organKey]}的点位数据失败，请重试`);
+      console.error('plyRenderer缺少loadAndRenderPlyPoints方法');
+      alert('加载点位功能不可用，请刷新页面重试');
     }
   } catch (error) {
     console.error('加载点位数据失败:', error);
@@ -592,16 +626,36 @@ const loadModelPoints = async () => {
 
 // 切换线段绘制模式
 const toggleDrawingMode = () => {
-  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || !hasPlyData.value) return;
+  console.log('toggleDrawingMode开始执行', { 
+    selectedModelKey: selectedModelKey.value,
+    rendererReady: rendererReady.value,
+    plyRenderer: !!plyRenderer.value,
+    hasPlyData: hasPlyData.value
+  });
+  
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || !hasPlyData.value) {
+    console.log('toggleDrawingMode条件不满足，提前返回');
+    return;
+  }
   
   const organKey = selectedModelKey.value;
   const organName = organKey; // 使用英文名称
   
-  const result = plyRenderer.value.toggleDrawing(organName);
-  
-  if (result !== undefined) {
-    isDrawingMode.value = result;
-    console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
+  try {
+    if (plyRenderer.value.toggleDrawing) {
+      const result = plyRenderer.value.toggleDrawing(organName);
+      
+      if (result !== undefined) {
+        isDrawingMode.value = result;
+        console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
+      }
+    } else {
+      console.error('plyRenderer缺少toggleDrawing方法');
+      alert('选择点位功能不可用，请刷新页面重试');
+    }
+  } catch (error) {
+    console.error('切换绘制模式失败:', error);
+    alert('切换绘制模式时发生错误，请重试');
   }
 };
 

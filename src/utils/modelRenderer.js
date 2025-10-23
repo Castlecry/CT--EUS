@@ -226,7 +226,6 @@ class ModelRenderer {
         
         // 检查是否需要更新悬停状态
         if (this.hoveredModel !== currentModel) {
-          console.log(`🔄 切换悬停模型: ${this.hoveredModel || '无'} -> ${currentModel}`);
           // 恢复之前悬停的模型
           this.resetHoveredModel();
           // 设置新的悬停模型
@@ -235,17 +234,14 @@ class ModelRenderer {
           this.highlightModel(currentModel, event.clientX, event.clientY);
         } else {
           // 相同模型，只需更新提示框位置
-          console.log(`同模型悬停，更新提示框位置`);
           this.tooltipElement.style.left = `${event.clientX + 10}px`;
           this.tooltipElement.style.top = `${event.clientY - 30}px`;
         }
       } else {
-        console.log('❌ 未找到相交物体所属的模型');
         // 强制重置材质状态
         this.resetHoveredModel();
       }
     } else {
-      console.log('❌ 没有检测到模型相交');
       // 没有相交的物体，恢复所有模型
       this.resetHoveredModel();
     }

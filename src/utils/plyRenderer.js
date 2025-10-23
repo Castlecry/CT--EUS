@@ -208,10 +208,10 @@ class PlyRenderer {
     if (!this.isDrawing || !this.currentModel) return;
     
     // 获取点击位置的吸附点
-    const吸附点 = this.getNearestPointFromMouse(event);
-    if (吸附点) {
-      this.startPoint =吸附点;
-      this.endPoint =吸附点;
+    const snapPoint = this.getNearestPointFromMouse(event);
+    if (snapPoint) {
+      this.startPoint = snapPoint;
+      this.endPoint = snapPoint;
       this.drawTempLine();
     }
   }
@@ -223,9 +223,9 @@ class PlyRenderer {
     if (!this.isDrawing || !this.startPoint || !this.currentModel) return;
     
     // 获取移动位置的吸附点
-    const吸附点 = this.getNearestPointFromMouse(event);
-    if (吸附点) {
-      this.endPoint =吸附点;
+    const snapPoint = this.getNearestPointFromMouse(event);
+    if (snapPoint) {
+      this.endPoint = snapPoint;
       this.drawTempLine();
     }
   }

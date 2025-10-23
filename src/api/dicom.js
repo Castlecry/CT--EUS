@@ -125,39 +125,33 @@ export const getOrganModel = async (batchId, baseName) => {
  */
 export const getOrganPlyModel = async (organName) => {
   try {
-    // 参数校验：确保必要参数存在
     if (!organName) {
       throw new Error("参数错误：器官英文名称不能为空");
     }
 
-    // 自动添加.ply后缀（处理已包含后缀的情况，避免重复添加）
-    const fileName = organName.endsWith('.ply') 
-      ? organName.trim() 
-      : `${organName.trim()}.ply`;
-
-    // 发送GET请求，通过params传递参数
-    const response = await apiClient.get('/process/ply/download', {
+    // 关键修改：将参数名从fileName改为organName
+    const response = await apiClient.get('/organ/ply', {
       params: {
-        fileName: fileName  // 自动处理后的完整文件名
+        organName: organName.trim()  // 这里参数名改为organName，值仍使用处理后的文件名
       },
-      responseType: 'blob'  // 保持二进制响应类型
+      responseType: 'blob'
     });
 
-    // 创建可直接使用的URL
     const objectUrl = URL.createObjectURL(response.data);
+    console.log('PLY模型URL:', objectUrl);
     
     return {
-      organName: organName.trim(),  // 原始器官名称（不带后缀）
-      fileName: fileName,          // 带.ply后缀的完整文件名
-      data: objectUrl,             // 返回可直接使用的URL
-      size: response.data.size     // 文件大小（字节）
+      organName: organName.trim(),
+      fileName: fileName,
+      data: objectUrl,
+      size: response.data.size
     };
   } catch (error) {
     console.error(`获取PLY模型失败（器官名称: ${organName}）:`, error);
     if (error.response) {
       console.error('服务器响应:', error.response);
     }
-    throw error;  // 向上层抛出错误，便于业务层处理
+    throw error;
   }
 };
 
