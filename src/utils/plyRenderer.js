@@ -128,9 +128,12 @@ class PlyRenderer {
         this.pointsData.set(organName, points); // 存储原始点位数据用于吸附计算
         
         // 重新渲染场景
-        this.modelRenderer.render();
-        
-        console.log(`成功渲染${organName}的点位和法向量，共${points.length}个点`);
+        if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
+          this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+          console.log(`成功渲染${organName}的点位和法向量，共${points.length}个点`);
+        } else {
+          console.error('缺少渲染所需的组件，无法重新渲染场景');
+        }
         return true;
       }
       

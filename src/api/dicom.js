@@ -3,7 +3,7 @@ import axios from 'axios';
 // 创建axios实例
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_APP_API_BASE_URL || 'http://localhost:8080/api',
-  timeout: 60000, // 60秒超时
+  timeout: 3000000, // 300秒超时
 });
 console.log('apiClient 配置的 baseURL:', apiClient.defaults.baseURL);
 /**
@@ -119,33 +119,52 @@ export const getOrganModel = async (batchId, baseName) => {
     
 
 /**
- * 获取指定器官的PLY模型（自动添加.ply后缀）
+ * 获取指定器官的PLY模型
  * @param {string} organName - 器官的英文名字
  * @returns {Promise} 返回模型数据（包含可直接使用的URL）
  */
 export const getOrganPlyModel = async (organName) => {
+  console.log('getOrganPlyModel函数开始执行，参数organName:', organName);
   try {
+    // 参数校验
     if (!organName) {
+      console.error('getOrganPlyModel: 参数错误 - organName为空');
       throw new Error("参数错误：器官英文名称不能为空");
     }
 
-    // 关键修改：将参数名从fileName改为organName
+    // 确保organName是字符串类型
+    const organNameStr = String(organName).trim();
+    console.log('getOrganPlyModel: 处理后的organName:', organNameStr);
+
+    // 构造完整URL用于调试
+    const url = `${apiClient.defaults.baseURL}/organ/ply?organName=${encodeURIComponent(organNameStr)}`;
+    console.log('getOrganPlyModel 请求URL:', url);
+
+    console.log('getOrganPlyModel: 准备发送请求');
     const response = await apiClient.get('/organ/ply', {
       params: {
-        organName: organName.trim()  // 这里参数名改为organName，值仍使用处理后的文件名
+        organName: organNameStr  // 严格按照接口文档使用organName参数
       },
       responseType: 'blob'
     });
 
+    console.log('getOrganPlyModel: 请求成功，response.data类型:', typeof response.data);
+    console.log('getOrganPlyModel: response.data是否为Blob:', response.data instanceof Blob);
+    
+    // 创建可直接使用的URL
     const objectUrl = URL.createObjectURL(response.data);
     console.log('PLY模型URL:', objectUrl);
     
-    return {
-      organName: organName.trim(),
-      fileName: fileName,
+    // 准备返回对象
+    const result = {
+      organName: organNameStr,
+      fileName: organNameStr,  // 根据错误信息，确保fileName已定义
       data: objectUrl,
       size: response.data.size
     };
+    console.log('getOrganPlyModel: 返回结果:', result);
+    
+    return result;
   } catch (error) {
     console.error(`获取PLY模型失败（器官名称: ${organName}）:`, error);
     if (error.response) {
