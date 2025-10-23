@@ -689,27 +689,37 @@ const toggleDrawingMode = () => {
     plyRenderer: !!plyRenderer.value,
     hasPlyData: hasPlyData.value
   });
-  
+
   if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || !hasPlyData.value) {
     console.log('toggleDrawingMode条件不满足，提前返回');
     return;
   }
-  
+
   const organKey = selectedModelKey.value;
   const organName = organKey; // 使用英文名称
-  
+
   try {
     if (plyRenderer.value.toggleDrawing) {
       const result = plyRenderer.value.toggleDrawing(organName);
-      
+
       if (result !== undefined) {
         isDrawingMode.value = result;
         console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
-        
+
         // 检查是否已有选择的点位
         if (plyRenderer.value.hasSelectedPoints) {
           hasSelectedPoints.value = plyRenderer.value.hasSelectedPoints();
           console.log('检查已选择点位状态:', hasSelectedPoints.value);
+        }
+
+        // 如果启用了绘制模式，添加吸附逻辑
+        if (isDrawingMode.value && plyRenderer.value.snapToClosestPoint) {
+          plyRenderer.value.enableSnapToClosestPoint((point) => {
+            console.log('吸附到最近点:', point);
+            // 在这里可以处理吸附点的逻辑，例如更新轨迹
+          });
+        } else if (!isDrawingMode.value && plyRenderer.value.disableSnapToClosestPoint) {
+          plyRenderer.value.disableSnapToClosestPoint();
         }
       }
     } else {
