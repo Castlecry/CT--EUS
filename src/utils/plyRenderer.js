@@ -481,66 +481,59 @@ class PlyRenderer {
     // 使用射线检测找到模型上的点
     this.raycaster.setFromCamera(this.mouse, this.camera);
     
-    // 只检测当前模型，确保轨迹不会穿过模型
-    let intersectPoint = null;
-    const modelObjects = [];
+    let pointToAdd = null;
     
-    // 获取当前模型的对象
-    if (this.modelRenderer && this.modelRenderer.models && this.currentModel) {
+    // 方法1: 尝试吸附到最近的点位
+    if (this.snapEnabled && this.currentModel && this.pointsData.has(this.currentModel)) {
+      const closestPoint = this._findClosestPoint(this.mouse);
+      if (closestPoint) {
+        pointToAdd = closestPoint;
+        console.log('吸附到最近点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+      }
+    }
+    
+    // 方法2: 如果没有吸附点，尝试检测模型表面
+    if (!pointToAdd && this.modelRenderer && this.modelRenderer.models && this.currentModel) {
       const model = this.modelRenderer.models.get(this.currentModel);
       if (model) {
-        modelObjects.push(model);
-      }
-    }
-    
-    // 优先检测模型表面
-    if (modelObjects.length > 0) {
-      const modelIntersects = this.raycaster.intersectObjects(modelObjects, true);
-      if (modelIntersects.length > 0) {
-        intersectPoint = modelIntersects[0].point;
-      }
-    }
-    
-    // 如果启用了吸附，尝试吸附到最近的点位
-    if (this.snapEnabled && this.currentModel && this.pointsData.has(this.currentModel)) {
-      const pointsData = this.pointsData.get(this.currentModel);
-      if (pointsData && pointsData.points) {
-        const closestPoint = this._findClosestPoint(this.mouse);
-        if (closestPoint) {
-          // 确保吸附点在视线范围内（不穿过模型）
-          if (intersectPoint) {
-            // 计算射线到吸附点和模型交点的距离
-            const rayOrigin = this.raycaster.ray.origin;
-            const closestPointDistance = rayOrigin.distanceTo(closestPoint);
-            const intersectPointDistance = rayOrigin.distanceTo(intersectPoint);
-            
-            // 只有当吸附点比模型交点更近时才使用（确保在视线可见的一面）
-            if (closestPointDistance < intersectPointDistance) {
-              this.trajectoryPoints.push(closestPoint.clone());
-              this.snappedTrajectoryPoints.push(closestPoint.clone());
-              
-              // 查找距离轨迹0.3范围内的点
-              this._findNearbyPoints(closestPoint, 0.3);
-              
-              // 调用吸附回调
-              if (this.snapCallback) {
-                this.snapCallback(closestPoint);
-              }
-              return;
-            }
-          }
+        const modelIntersects = this.raycaster.intersectObject(model, true);
+        if (modelIntersects.length > 0) {
+          pointToAdd = modelIntersects[0].point;
+          console.log('检测到模型表面交点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
         }
       }
     }
-
-    // 如果有模型表面交点，使用它作为轨迹点
-    if (intersectPoint) {
-      this.trajectoryPoints.push(intersectPoint.clone());
-      this.snappedTrajectoryPoints.push(intersectPoint.clone());
+    
+    // 方法3: 如果以上都失败，检测整个场景（确保总能画上线）
+    if (!pointToAdd) {
+      const sceneIntersects = this.raycaster.intersectObjects(this.scene.children, true);
+      if (sceneIntersects.length > 0) {
+        pointToAdd = sceneIntersects[0].point;
+        console.log('使用场景交点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+      }
+    }
+    
+    // 方法4: 如果还是没有交点，创建一个基于射线的点（作为最后的后备）
+    if (!pointToAdd) {
+      // 沿着射线方向创建一个点
+      const rayDirection = new THREE.Vector3();
+      this.raycaster.ray.direction.normalize();
+      rayDirection.copy(this.raycaster.ray.direction);
+      pointToAdd = this.raycaster.ray.origin.clone().add(rayDirection.multiplyScalar(10));
+      console.log('使用射线方向创建点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+    }
+    
+    // 添加点到轨迹
+    if (pointToAdd) {
+      this.trajectoryPoints.push(pointToAdd.clone());
+      this.snappedTrajectoryPoints.push(pointToAdd.clone());
       
-      // 如果启用了吸附，也查找附近的点
-      if (this.snapEnabled) {
-        this._findNearbyPoints(intersectPoint, 0.3);
+      // 查找距离轨迹0.3范围内的点
+      this._findNearbyPoints(pointToAdd, 0.3);
+      
+      // 调用吸附回调
+      if (this.snapCallback) {
+        this.snapCallback(pointToAdd);
       }
     }
   }
@@ -563,12 +556,20 @@ class PlyRenderer {
     let closestPoint = null;
     let minDistance = Infinity;
     
+    // 增加距离阈值，使吸附更容易触发
+    const distanceThreshold = 2.0; // 从1.0增加到2.0
+    
     for (const point of pointsData.points) {
       const distance = this.raycaster.ray.distanceToPoint(point);
-      if (distance < minDistance && distance < 1.0) { // 距离阈值
+      if (distance < minDistance && distance < distanceThreshold) {
         minDistance = distance;
         closestPoint = point;
       }
+    }
+
+    // 如果找到最近点，添加日志
+    if (closestPoint) {
+      console.log(`找到距离射线${minDistance.toFixed(3)}的最近点`);
     }
 
     return closestPoint;
@@ -611,21 +612,44 @@ class PlyRenderer {
 
     if (this.snappedTrajectoryPoints.length < 2) return;
 
-    // 使用CatmullRomCurve3创建平滑曲线
-    const curve = new THREE.CatmullRomCurve3(this.snappedTrajectoryPoints, false, 'centripetal', 0.5);
+    console.log(`更新轨迹预览，当前点数: ${this.snappedTrajectoryPoints.length}`);
     
-    // 根据轨迹长度生成合适数量的点，确保曲线平滑
-    const pointsCount = Math.max(32, this.snappedTrajectoryPoints.length * 4);
-    const curvePoints = curve.getPoints(pointsCount);
-    
-    const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
-    const material = new THREE.LineBasicMaterial({
-      color: 0xFF0000, // 红色轨迹线
-      linewidth: 2
-    });
-
-    this.trajectoryLine = new THREE.Line(geometry, material);
-    this.scene.add(this.trajectoryLine);
+    try {
+      // 使用CatmullRomCurve3创建平滑曲线
+      const curve = new THREE.CatmullRomCurve3(this.snappedTrajectoryPoints, false, 'centripetal', 0.5);
+      
+      // 根据轨迹长度生成合适数量的点，确保曲线平滑
+      const pointsCount = Math.max(32, this.snappedTrajectoryPoints.length * 4);
+      const curvePoints = curve.getPoints(pointsCount);
+      
+      // 增强材质可见性
+      const material = new THREE.LineBasicMaterial({
+        color: 0xFF0000, // 红色轨迹线
+        linewidth: 3,    // 增加线宽
+        transparent: false,
+        opacity: 1.0
+      });
+      
+      const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
+      this.trajectoryLine = new THREE.Line(geometry, material);
+      
+      // 设置渲染顺序，确保轨迹线显示在最前面
+      this.trajectoryLine.renderOrder = 1000;
+      
+      this.scene.add(this.trajectoryLine);
+      console.log('轨迹预览更新成功');
+    } catch (error) {
+      console.error('更新轨迹预览时出错:', error);
+      
+      // 出错时使用简单的折线作为后备
+      const material = new THREE.LineBasicMaterial({
+        color: 0xFF0000,
+        linewidth: 3
+      });
+      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+      this.trajectoryLine = new THREE.Line(geometry, material);
+      this.scene.add(this.trajectoryLine);
+    }
   }
 
   /**
@@ -638,27 +662,51 @@ class PlyRenderer {
       return;
     }
 
-    // 使用CatmullRomCurve3创建平滑曲线
-    const curve = new THREE.CatmullRomCurve3(this.snappedTrajectoryPoints, false, 'centripetal', 0.5);
+    console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
     
-    // 根据轨迹长度生成合适数量的点，确保曲线平滑
-    const pointsCount = Math.max(64, this.snappedTrajectoryPoints.length * 8);
-    const curvePoints = curve.getPoints(pointsCount);
-    
-    const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
-    const material = new THREE.LineBasicMaterial({
-      color: 0xFF0000,
-      linewidth: 2
-    });
-
-    this.lineObject = new THREE.Line(geometry, material);
-    this.lineObject.name = `${this.currentModel}_trajectory`;
-    this.scene.add(this.lineObject);
+    try {
+      // 使用CatmullRomCurve3创建平滑曲线
+      const curve = new THREE.CatmullRomCurve3(this.snappedTrajectoryPoints, false, 'centripetal', 0.5);
+      
+      // 根据轨迹长度生成合适数量的点，确保曲线平滑
+      const pointsCount = Math.max(64, this.snappedTrajectoryPoints.length * 8);
+      const curvePoints = curve.getPoints(pointsCount);
+      
+      // 增强材质可见性
+      const material = new THREE.LineBasicMaterial({
+        color: 0xFF0000,
+        linewidth: 3,  // 增加线宽
+        transparent: false,
+        opacity: 1.0
+      });
+      
+      const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
+      this.lineObject = new THREE.Line(geometry, material);
+      
+      // 设置渲染顺序，确保轨迹线显示在最前面
+      this.lineObject.renderOrder = 1000;
+      this.lineObject.name = `${this.currentModel}_trajectory`;
+      
+      this.scene.add(this.lineObject);
+      console.log('曲线轨迹创建成功');
+    } catch (error) {
+      console.error('创建平滑曲线时出错:', error);
+      
+      // 出错时使用简单的折线作为后备
+      const material = new THREE.LineBasicMaterial({
+        color: 0xFF0000,
+        linewidth: 3
+      });
+      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+      this.lineObject = new THREE.Line(geometry, material);
+      this.lineObject.name = `${this.currentModel}_trajectory`;
+      this.scene.add(this.lineObject);
+    }
 
     // 清除预览
     this._clearTrajectory();
 
-    console.log(`轨迹绘制完成：${this.snappedTrajectoryPoints.length}个点，选中${this.selectedPoints.length}个点，生成平滑曲线`);
+    console.log(`轨迹绘制完成：${this.snappedTrajectoryPoints.length}个点，选中${this.selectedPoints.length}个点`);
   }
 
   /**

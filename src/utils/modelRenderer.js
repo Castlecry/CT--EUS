@@ -115,8 +115,6 @@ class ModelRenderer {
     this.renderer.domElement.addEventListener('mousemove', (event) => this.onMouseMove(event));
     // 设置鼠标离开事件监听
     this.renderer.domElement.addEventListener('mouseleave', () => this.onMouseLeave());
-    // 设置鼠标点击事件监听
-    this.renderer.domElement.addEventListener('click', (event) => this.onMouseClick(event));
     console.log('鼠标事件监听已初始化');
   }
 
@@ -252,51 +250,7 @@ class ModelRenderer {
     this.resetHoveredModel();
   }
 
-  // 鼠标点击事件处理
-  onMouseClick(event) {
-    // 计算鼠标在标准化设备坐标中的位置
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    // 更新射线检测器
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-
-    // 获取所有可交互的模型
-    const modelObjects = Array.from(this.models.values());
-    
-    // 射线检测
-    const intersects = this.raycaster.intersectObjects(modelObjects, true);
-
-    if (intersects.length > 0) {
-      console.log('检测到模型点击:', intersects.length);
-      // 找到相交的最前面的物体
-      const intersectedObject = intersects[0].object;
-      
-      // 找到对应的模型
-      let currentModel = null;
-      
-      // 遍历模型，检查相交物体是否在模型内部
-      for (const [name, model] of this.models.entries()) {
-        let found = false;
-        model.traverse((child) => {
-          if (child === intersectedObject) {
-            found = true;
-          }
-        });
-        if (found) {
-          currentModel = name;
-          break;
-        }
-      }
-      
-      if (currentModel) {
-        console.log(`✓ 成功识别点击模型: ${currentModel}`);
-        // 切换模型颜色状态
-        this.toggleModelColorState(currentModel);
-      }
-    }
-  }
+  // 移除鼠标点击事件处理方法，因为不再需要点击模型的颜色切换功能
 
   // 切换模型颜色状态
   toggleModelColorState(modelName) {
