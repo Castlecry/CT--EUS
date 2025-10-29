@@ -700,20 +700,21 @@ const toggleDrawingMode = () => {
 
     if (result !== undefined) {
       isDrawingMode.value = result;
-      console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
-
-      // 检查是否已有选择的点位
-      hasSelectedPoints.value = plyRenderer.value.hasSelectedPoints();
-      console.log('检查已选择点位状态:', hasSelectedPoints.value);
-
-      // 如果启用了绘制模式，添加吸附逻辑
+      
+      // 添加详细状态指示和日志
       if (isDrawingMode.value) {
+        console.log('进入绘制模式：模型已固定，可在表面绘制平滑轨迹');
         plyRenderer.value.enableSnapToClosestPoint((point) => {
           console.log('吸附到最近点:', point);
         });
       } else {
+        console.log('退出绘制模式：模型可自由旋转缩放');
         plyRenderer.value.disableSnapToClosestPoint();
       }
+
+      // 检查是否已有选择的点位
+      hasSelectedPoints.value = plyRenderer.value.hasSelectedPoints();
+      console.log('检查已选择点位状态:', hasSelectedPoints.value);
     }
   } catch (error) {
     console.error('切换绘制模式失败:', error);
