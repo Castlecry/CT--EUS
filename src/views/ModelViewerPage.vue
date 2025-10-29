@@ -660,18 +660,14 @@ const loadModelPoints = async () => {
       isDrawingMode.value = false;
     }
     
-    if (plyRenderer.value.loadAndRenderPlyPoints) {
-      const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, getOrganPlyModel);
-      
-      if (success) {
-        hasPlyData.value = true;
-        console.log(`成功加载${organList[organKey]}的点位数据`);
-      } else {
-        alert(`加载${organList[organKey]}的点位数据失败，请重试`);
-      }
+    // 调用新的PlyRenderer方法
+    const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, getOrganPlyModel);
+    
+    if (success) {
+      hasPlyData.value = true;
+      console.log(`成功加载${organList[organKey]}的点位数据`);
     } else {
-      console.error('plyRenderer缺少loadAndRenderPlyPoints方法');
-      alert('加载点位功能不可用，请刷新页面重试');
+      alert(`加载${organList[organKey]}的点位数据失败，请重试`);
     }
   } catch (error) {
     console.error('加载点位数据失败:', error);
@@ -699,32 +695,25 @@ const toggleDrawingMode = () => {
   const organName = organKey; // 使用英文名称
 
   try {
-    if (plyRenderer.value.toggleDrawing) {
-      const result = plyRenderer.value.toggleDrawing(organName);
+    // 调用新的PlyRenderer的toggleDrawing方法
+    const result = plyRenderer.value.toggleDrawing(organName);
 
-      if (result !== undefined) {
-        isDrawingMode.value = result;
-        console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
+    if (result !== undefined) {
+      isDrawingMode.value = result;
+      console.log(`线段绘制模式已${isDrawingMode.value ? '启用' : '禁用'}`);
 
-        // 检查是否已有选择的点位
-        if (plyRenderer.value.hasSelectedPoints) {
-          hasSelectedPoints.value = plyRenderer.value.hasSelectedPoints();
-          console.log('检查已选择点位状态:', hasSelectedPoints.value);
-        }
+      // 检查是否已有选择的点位
+      hasSelectedPoints.value = plyRenderer.value.hasSelectedPoints();
+      console.log('检查已选择点位状态:', hasSelectedPoints.value);
 
-        // 如果启用了绘制模式，添加吸附逻辑
-        if (isDrawingMode.value && plyRenderer.value.snapToClosestPoint) {
-          plyRenderer.value.enableSnapToClosestPoint((point) => {
-            console.log('吸附到最近点:', point);
-            // 在这里可以处理吸附点的逻辑，例如更新轨迹
-          });
-        } else if (!isDrawingMode.value && plyRenderer.value.disableSnapToClosestPoint) {
-          plyRenderer.value.disableSnapToClosestPoint();
-        }
+      // 如果启用了绘制模式，添加吸附逻辑
+      if (isDrawingMode.value) {
+        plyRenderer.value.enableSnapToClosestPoint((point) => {
+          console.log('吸附到最近点:', point);
+        });
+      } else {
+        plyRenderer.value.disableSnapToClosestPoint();
       }
-    } else {
-      console.error('plyRenderer缺少toggleDrawing方法');
-      alert('选择点位功能不可用，请刷新页面重试');
     }
   } catch (error) {
     console.error('切换绘制模式失败:', error);
@@ -749,16 +738,12 @@ const toggleNormalsVisibility = () => {
   const organName = organKey; // 使用英文名称
   
   try {
-    if (plyRenderer.value.toggleNormalsVisibility) {
-      const result = plyRenderer.value.toggleNormalsVisibility(organName);
-      
-      if (result !== undefined) {
-        normalsVisible.value = result;
-        console.log(`法向量可见性已${normalsVisible.value ? '启用' : '禁用'}`);
-      }
-    } else {
-      console.error('plyRenderer缺少toggleNormalsVisibility方法');
-      alert('切换法向量可见性功能不可用，请刷新页面重试');
+    // 调用新的PlyRenderer的toggleNormalsVisibility方法
+    const result = plyRenderer.value.toggleNormalsVisibility(organName);
+    
+    if (result !== undefined) {
+      normalsVisible.value = result;
+      console.log(`法向量可见性已${normalsVisible.value ? '启用' : '禁用'}`);
     }
   } catch (error) {
     console.error('切换法向量可见性失败:', error);

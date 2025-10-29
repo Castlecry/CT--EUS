@@ -50,6 +50,7 @@ class PlyRenderer {
       this.pointsObjects = new Map(); // 存储已渲染的点云对象
       this.vectorsObjects = new Map(); // 存储已渲染的法向量对象
       this.pointsData = new Map(); // 存储原始点位数据，用于吸附计算
+      this._normalsVisibility = new Map(); // 存储法向量可见性状态
 
       // 线段绘制相关状态
       this.isDrawing = false; // 是否处于绘制模式
@@ -62,24 +63,18 @@ class PlyRenderer {
       this.trajectoryLine = null; // 实时预览轨迹线
       this.selectedPoints = []; // 保存所有选中的点（曲线点+附近点）
       this.drawnCurves = []; // 保存已绘制的所有曲线数据
+      this.snapCallback = null; // 吸附回调函数
+      this.snapEnabled = false; // 是否启用吸附
+
+      // 初始化射线检测器
+      this.raycaster = new THREE.Raycaster();
+      this.mouse = new THREE.Vector2();
 
       // 绑定事件处理函数
       this._bindEventHandlers();
 
-      const domElement = this.modelRenderer.renderer.domElement;
-      domElement.addEventListener('mousedown', this.onMouseDown);
-      domElement.addEventListener('mousemove', this.onMouseMove);
-      domElement.addEventListener('mouseup', this.onMouseUp);
-
-      // 确保在清理时解绑事件
-      this._unbindEventHandlers = () => {
-        domElement.removeEventListener('mousedown', this.onMouseDown);
-        domElement.removeEventListener('mousemove', this.onMouseMove);
-        domElement.removeEventListener('mouseup', this.onMouseUp);
-      };
-
       this._initialized = true;
-      console.log('PlyRenderer初始化完成');
+      console.log('PlyRenderer初始化成功');
     } catch (error) {
       console.error('PlyRenderer初始化失败:', error);
       throw error;
@@ -87,678 +82,574 @@ class PlyRenderer {
   }
 
   /**
-   * 绑定事件处理函数的this上下文
+   * 绑定事件处理函数
    * @private
    */
   _bindEventHandlers() {
-    this.onMouseDown = this.onMouseDown.bind(this);
-    this.onMouseMove = this.onMouseMove.bind(this);
-    this.onMouseUp = this.onMouseUp.bind(this);
+    if (!this.renderer || !this.renderer.domElement) {
+      console.error('无法绑定事件，渲染器DOM元素不存在');
+      return;
+    }
+
+    // 保存事件处理函数的引用，用于后续解绑
+    this._handleMouseDown = this._onMouseDown.bind(this);
+    this._handleMouseMove = this._onMouseMove.bind(this);
+    this._handleMouseUp = this._onMouseUp.bind(this);
+    this._handleMouseLeave = this._onMouseLeave.bind(this);
+
+    // 初始不绑定事件，在进入绘制模式时绑定
   }
 
   /**
-   * 确保PlyRenderer已初始化
+   * 解绑事件处理函数
    * @private
    */
-  async _ensureInitialized() {
-    if (!this._initialized) {
-      await this._initPromise;
-    }
+  _unbindEventHandlers() {
+    if (!this.renderer || !this.renderer.domElement) return;
+
+    this.renderer.domElement.removeEventListener('mousedown', this._handleMouseDown);
+    this.renderer.domElement.removeEventListener('mousemove', this._handleMouseMove);
+    this.renderer.domElement.removeEventListener('mouseup', this._handleMouseUp);
+    this.renderer.domElement.removeEventListener('mouseleave', this._handleMouseLeave);
   }
 
   /**
-   * 获取并渲染PLY文件中的点位和法向量
+   * 加载并渲染PLY点位和法向量
    * @param {string} organName - 器官名称
    * @param {Function} getOrganPlyModel - 获取PLY模型的API函数
-   * @returns {Promise<boolean>} - 是否渲染成功
+   * @returns {Promise<boolean>} 是否成功
    */
   async loadAndRenderPlyPoints(organName, getOrganPlyModel) {
+    if (!this._initialized || !organName || typeof getOrganPlyModel !== 'function') {
+      console.error('加载PLY点位失败：初始化未完成或参数无效');
+      return false;
+    }
+
     try {
-      if (!this.modelRenderer || !this.modelRenderer.scene) {
-        console.error('PlyRenderer未正确初始化');
-        return false;
-      }
+      console.log(`开始加载${organName}的PLY点位数据`);
 
-      this.clearPlyData(organName);
+      // 清除该器官的现有数据
+      this._clearOrganData(organName);
 
+      // 调用API获取PLY数据
       const plyData = await getOrganPlyModel(organName);
-
-      const response = await fetch(plyData.data);
-      const plyText = await response.text();
-
-      const points = this.parsePlyFile(plyText);
-
-      if (!points || points.length === 0) {
-        console.error('未解析到有效点位数据');
-        return false;
+      if (!plyData || !plyData.data) {
+        throw new Error('获取PLY数据失败：返回数据无效');
       }
 
-      const pointsObject = this.renderPoints(points);
-      const vectorsObject = this.renderNormals(points);
-      vectorsObject.visible = false;
+      // 加载PLY文件
+      const pointsAndNormals = await this._loadPlyFile(plyData.data);
+      if (!pointsAndNormals || !pointsAndNormals.points || pointsAndNormals.points.length === 0) {
+        throw new Error('解析PLY文件失败：未找到有效点位数据');
+      }
 
-      if (this.modelRenderer && this.modelRenderer.scene) {
-        this.modelRenderer.scene.add(pointsObject);
-        this.modelRenderer.scene.add(vectorsObject);
+      // 保存点位数据
+      this.pointsData.set(organName, pointsAndNormals);
 
-        this.pointsObjects.set(organName, pointsObject);
-        this.vectorsObjects.set(organName, vectorsObject);
-        this.pointsData.set(organName, points);
+      // 渲染点位
+      this._renderPoints(organName, pointsAndNormals.points);
 
-        if (!this._normalsVisibility) {
-          this._normalsVisibility = new Map();
-        }
+      // 渲染法向量（默认隐藏）
+      if (pointsAndNormals.normals && pointsAndNormals.normals.length > 0) {
+        this._renderNormals(organName, pointsAndNormals.points, pointsAndNormals.normals);
         this._normalsVisibility.set(organName, false);
-
-        if (this.modelRenderer && this.modelRenderer.renderer && this.modelRenderer.scene && this.modelRenderer.camera) {
-          try {
-            const renderer = this.modelRenderer.renderer;
-            const scene = this.modelRenderer.scene;
-            const camera = this.modelRenderer.camera;
-
-            renderer.render(scene, camera);
-            console.log(`成功渲染${organName}的点位和法向量，共${points.length}个点`);
-          } catch (renderError) {
-            console.error('渲染时发生错误:', renderError);
-          }
-        } else {
-          console.error('缺少渲染所需的组件，无法重新渲染场景');
-        }
-        return true;
       }
 
-      return false;
+      console.log(`成功加载并渲染${organName}的PLY点位数据`);
+      return true;
     } catch (error) {
-      console.error('加载和渲染PLY文件失败:', error);
+      console.error(`加载PLY点位失败：${error.message}`);
+      // 确保清除可能存在的部分数据
+      this._clearOrganData(organName);
       return false;
     }
   }
 
   /**
-   * 解析PLY文件内容
-   * @param {string} plyText - PLY文件文本内容
-   * @returns {Array} - 包含点坐标和法向量的数组
+   * 加载PLY文件并解析点位和法向量
+   * @private
+   * @param {string} url - PLY文件URL
+   * @returns {Promise<{points: Array, normals: Array}>} 解析后的点位和法向量
    */
-  parsePlyFile(plyText) {
-    const lines = plyText.trim().split('\n');
-    const points = [];
-    let dataStartIndex = -1;
-    let vertexCount = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-
-      if (line.startsWith('element vertex')) {
-        vertexCount = parseInt(line.split(' ')[2]);
+  async _loadPlyFile(url) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`加载PLY文件失败：${response.statusText}`);
       }
 
-      if (line === 'end_header') {
-        dataStartIndex = i + 1;
-        break;
-      }
-    }
+      const text = await response.text();
+      const lines = text.split('\n');
+      
+      // 解析PLY头部，找到数据起始位置
+      let dataStartIndex = -1;
+      let vertexCount = 0;
+      let hasNormals = false;
 
-    if (dataStartIndex === -1) {
-      console.error('PLY文件格式错误：未找到end_header标记');
-      return [];
-    }
-
-    const dataLines = lines.slice(dataStartIndex, dataStartIndex + vertexCount);
-
-    for (const line of dataLines) {
-      const values = line.trim().split(/\s+/).map(parseFloat);
-
-      if (values.length >= 6) {
-        points.push({
-          x: values[0],
-          y: values[1],
-          z: values[2],
-          nx: values[3],
-          ny: values[4],
-          nz: values[5]
-        });
-      }
-    }
-
-    return points;
-  }
-
-  /**
-   * 启动绘制模式
-   * @param {string} modelName - 当前选中的模型名称
-   */
-  startDrawing(modelName) {
-    if (!this.modelRenderer || !this.modelRenderer.scene) {
-      console.error('模型渲染器未初始化');
-      return false;
-    }
-
-    if (!this.pointsData.has(modelName)) {
-      console.error(`模型${modelName}没有点位数据，无法进行绘制`);
-      return false;
-    }
-
-    // 清除之前的线段和轨迹
-    this.clearLine();
-    this.clearTrajectory();
-
-    // 设置绘制状态
-    this.isDrawing = true;
-    this.currentModel = modelName;
-    this.isDragging = false;
-    this.trajectoryPoints = [];
-    this.startPoint = null;
-
-    console.log(`已进入模型 ${modelName} 的绘制模式`);
-    return true;
-  }
-
-  /**
-   * 停止绘制模式
-   */
-  stopDrawing() {
-    if (!this.isDrawing) return;
-
-    // 清除临时预览线和重置状态
-    this.clearTrajectory();
-
-    this.isDrawing = false;
-    this.isDragging = false;
-    this.currentModel = null;
-    this.startPoint = null;
-    this.trajectoryPoints = [];
-
-    console.log('已退出绘制模式');
-  }
-
-  /**
-   * 切换绘制模式
-   * @param {string} modelName - 当前选中的模型名称
-   */
-  toggleDrawing(modelName) {
-    if (this.isDrawing) {
-      this.stopDrawing();
-      if (this.modelRenderer && this.modelRenderer.controls) {
-        this.modelRenderer.controls.enabled = true;
-      }
-      return false;
-    } else {
-      const started = this.startDrawing(modelName);
-      if (started && this.modelRenderer && this.modelRenderer.controls) {
-        this.modelRenderer.controls.enabled = false;
-      }
-      return started;
-    }
-  }
-
-  /**
-   * 鼠标按下事件处理
-   */
-  onMouseDown(event) {
-    // 仅在绘制模式下，且是鼠标左键按下时响应
-    if (!this.isDrawing || event.button !== 0) return;
-
-    const snapPoint = this.getNearestPointFromMouse(event);
-    if (snapPoint) {
-      this.isDragging = true;
-      this.startPoint = snapPoint;
-
-      this.clearTrajectory();
-      this.trajectoryPoints = [this.startPoint];
-    }
-  }
-
-  /**
-   * 鼠标移动事件处理
-   */
-  onMouseMove(event) {
-    // 仅在绘制模式下且正在拖动时响应
-    if (!this.isDrawing || !this.isDragging) return;
-
-    const rect = this.modelRenderer.renderer.domElement.getBoundingClientRect();
-    const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera({ x: mouseX, y: mouseY }, this.modelRenderer.camera);
-
-    const model = this.modelRenderer.models?.get(this.currentModel);
-    if (!model) return;
-
-    const modelIntersects = raycaster.intersectObject(model, true);
-    if (modelIntersects.length > 0) {
-      const surfacePoint = modelIntersects[0].point;
-
-      // 添加点到用户绘制的原始轨迹
-      this.trajectoryPoints.push({ x: surfacePoint.x, y: surfacePoint.y, z: surfacePoint.z });
-
-      // 实时绘制吸附预览轨迹
-      this.drawTrajectoryWithSnapPreview();
-    }
-  }
-
-  /**
-   * 绘制带有实时吸附预览的轨迹
-   */
-  drawTrajectoryWithSnapPreview() {
-    if (!this.trajectoryPoints || this.trajectoryPoints.length < 2 || !this.modelRenderer || !this.modelRenderer.scene) return;
-
-    if (this.trajectoryLine) {
-      this.modelRenderer.scene.remove(this.trajectoryLine);
-      this.trajectoryLine.geometry.dispose();
-      this.trajectoryLine.material.dispose();
-    }
-
-    const plyPoints = this.pointsData.get(this.currentModel) || [];
-    let previewTrajectoryPoints = [];
-
-    if (plyPoints.length > 0) {
-      // 对轨迹点进行实时吸附计算
-      this.trajectoryPoints.forEach(trajectoryPoint => {
-        let closestPoint = this._findNearestPlyPoint(trajectoryPoint, 20);
-        previewTrajectoryPoints.push(closestPoint || trajectoryPoint);
-      });
-    } else {
-      previewTrajectoryPoints = this.trajectoryPoints;
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(previewTrajectoryPoints.length * 3);
-
-    previewTrajectoryPoints.forEach((point, index) => {
-      positions[index * 3] = point.x;
-      positions[index * 3 + 1] = point.y;
-      positions[index * 3 + 2] = point.z;
-    });
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    const material = new THREE.LineBasicMaterial({
-      color: 0xffff00,
-      linewidth: 3,
-      transparent: true,
-      opacity: 0.8
-    });
-
-    this.trajectoryLine = new THREE.Line(geometry, material);
-    this.modelRenderer.scene.add(this.trajectoryLine);
-
-    requestAnimationFrame(() => {
-      this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
-    });
-  }
-
-  /**
-   * 鼠标抬起事件处理
-   */
-  onMouseUp(event) {
-    // 仅在绘制模式下且正在拖动时响应
-    if (!this.isDrawing || !this.isDragging) return;
-
-    this.isDragging = false;
-
-    // 如果轨迹点太少，则视为无效操作
-    if (this.trajectoryPoints.length < 2) {
-      this.clearTrajectory();
-      this.startPoint = null;
-      this.trajectoryPoints = [];
-      return;
-    }
-
-    // 清除黄色的实时预览轨迹
-    this.clearTrajectory();
-
-    // 对整个轨迹进行最终的吸附处理
-    const snappedTrajectoryPoints = this.snapTrajectoryToPoints(20);
-
-    let finalPoints = [];
-    if (snappedTrajectoryPoints.length > 1) {
-      finalPoints = snappedTrajectoryPoints;
-      console.log(`最终轨迹吸附到 ${finalPoints.length} 个点位`);
-    } else {
-      finalPoints = this.trajectoryPoints;
-      console.warn(`吸附失败，回退到原始表面轨迹，包含 ${finalPoints.length} 个点`);
-    }
-
-    // 保存曲线数据用于后续参考
-    this.drawnCurves.push(finalPoints);
-
-    // 绘制最终的红色轨迹并收集附近点
-    this.drawFinalLine(finalPoints);
-
-    // 重置状态，以便用户可以立即绘制下一条线
-    this.startPoint = null;
-    this.trajectoryPoints = [];
-  }
-
-  /**
-   * 从鼠标位置获取最近的点位
-   */
-  getNearestPointFromMouse(event) {
-    if (!this.modelRenderer || !this.modelRenderer.camera || !this.currentModel) {
-      return null;
-    }
-
-    const rect = this.modelRenderer.renderer.domElement.getBoundingClientRect();
-    const mouseX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const mouseY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera({ x: mouseX, y: mouseY }, this.modelRenderer.camera);
-
-    // 优先从模型表面获取精确点击位置，再寻找最近的PLY点
-    const model = this.modelRenderer.models?.get(this.currentModel);
-    if (model) {
-      const modelIntersects = raycaster.intersectObject(model, true);
-      if (modelIntersects.length > 0) {
-        const referencePoint = modelIntersects[0].point;
-        return this._findNearestPlyPoint(referencePoint, 50);
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * 清除预览轨迹
-   */
-  clearTrajectory() {
-    if (this.trajectoryLine && this.modelRenderer && this.modelRenderer.scene) {
-      this.modelRenderer.scene.remove(this.trajectoryLine);
-      this.trajectoryLine.geometry.dispose();
-      this.trajectoryLine.material.dispose();
-      this.trajectoryLine = null;
-    }
-    this.trajectoryPoints = [];
-  }
-
-  /**
-   * 将轨迹吸附到ply文件渲染的点位
-   * @param {number} distanceThreshold 距离阈值
-   * @returns {Array} 吸附后的轨迹点
-   */
-  snapTrajectoryToPoints(distanceThreshold = 20) {
-    if (!this.currentModel || !this.trajectoryPoints || this.trajectoryPoints.length === 0) {
-      return [];
-    }
-
-    const plyPoints = this.pointsData.get(this.currentModel) || [];
-    if (plyPoints.length === 0) return [];
-
-    const snappedPoints = [];
-
-    this.trajectoryPoints.forEach(trajectoryPoint => {
-      const closestPoint = this._findNearestPlyPoint(trajectoryPoint, distanceThreshold);
-      if (closestPoint) {
-        // 防止连续添加重复的点
-        if (snappedPoints.length === 0 || this._calculateDistance(closestPoint, snappedPoints[snappedPoints.length - 1]) > 0.1) {
-          snappedPoints.push(closestPoint);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('element vertex')) {
+          vertexCount = parseInt(line.split(' ')[2]);
+        } else if (line.startsWith('property float nx')) {
+          hasNormals = true;
+        } else if (line === 'end_header') {
+          dataStartIndex = i + 1;
+          break;
         }
       }
-    });
 
-    return snappedPoints;
-  }
-
-  /**
-   * 找到离给定点最近的ply点
-   * @param {Object} point 给定点
-   * @param {number} maxDistance 最大距离
-   * @returns {Object|null} 最近的ply点
-   */
-  _findNearestPlyPoint(point, maxDistance = 20) {
-    const plyPoints = this.pointsData.get(this.currentModel) || [];
-    if (plyPoints.length === 0) return null;
-
-    let nearestPoint = null;
-    let minDistance = Infinity;
-
-    for (const plyPoint of plyPoints) {
-      const distance = this._calculateDistance(point, plyPoint);
-
-      if (distance < minDistance && distance <= maxDistance) {
-        minDistance = distance;
-        nearestPoint = plyPoint;
+      if (dataStartIndex === -1 || vertexCount === 0) {
+        throw new Error('无效的PLY文件格式：未找到头部信息或顶点计数');
       }
-    };
 
-    return nearestPoint;
-  }
-
-  /**
-   * 计算两点之间的距离
-   */
-  _calculateDistance(point1, point2) {
-    return Math.sqrt(
-      Math.pow(point1.x - point2.x, 2) +
-      Math.pow(point1.y - point2.y, 2) +
-      Math.pow(point1.z - point2.z, 2)
-    );
-  }
-
-  /**
-   * 绘制最终的红色轨迹线并收集附近点
-   * @param {Array} points - 最终确定的点位数组
-   */
-  drawFinalLine(points) {
-    if (!points || points.length < 2 || !this.modelRenderer || !this.modelRenderer.scene) {
-      console.error('点数组无效，无法绘制最终线段');
-      return;
-    }
-
-    // 清除已有线段
-    if (this.lineObject) {
-      this.modelRenderer.scene.remove(this.lineObject);
-      this.lineObject.geometry.dispose();
-      this.lineObject.material.dispose();
-      this.lineObject = null;
-    }
-
-    // 创建曲线几何体
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(points.length * 3);
-
-    points.forEach((point, index) => {
-      positions[index * 3] = point.x;
-      positions[index * 3 + 1] = point.y;
-      positions[index * 3 + 2] = point.z;
-    });
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    // 创建曲线材质并添加到场景
-    const material = new THREE.LineBasicMaterial({
-      color: 0xff0000,
-      linewidth: 3,
-      transparent: true,
-      opacity: 0.9
-    });
-
-    this.lineObject = new THREE.Line(geometry, material);
-    this.modelRenderer.scene.add(this.lineObject);
-
-    // 核心功能：查找并记录曲线附近的点（距离≤2单位）
-    const nearbyPoints = this.findPointsNearCurve(points, 2);
-    this.selectedPoints = [...new Set([...this.selectedPoints, ...points, ...nearbyPoints])];
-
-    console.log(`绘制最终轨迹，包含${points.length}个原始点和${nearbyPoints.length}个附近点，共${this.selectedPoints.length}个点`);
-
-    requestAnimationFrame(() => {
-      this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
-    });
-  }
-
-  /**
-   * 查找距离曲线（由多段线段组成）一定范围内的点
-   * @param {Array} curvePoints - 曲线的顶点数组
-   * @param {number} maxDistance - 最大距离阈值
-   * @returns {Array} 符合条件的点数组
-   */
-  findPointsNearCurve(curvePoints, maxDistance) {
-    if (!this.currentModel || curvePoints.length < 2) return [];
-
-    const plyPoints = this.pointsData.get(this.currentModel) || [];
-    if (plyPoints.length === 0) return [];
-
-    const nearbyPoints = [];
-    const checkedPoints = new Set(); // 用于去重
-
-    // 遍历曲线上的每一段线段
-    for (let i = 0; i < curvePoints.length - 1; i++) {
-      const start = curvePoints[i];
-      const end = curvePoints[i + 1];
-
-      // 检查每个点是否在当前线段的附近
-      plyPoints.forEach(plyPoint => {
-        const pointKey = `${plyPoint.x},${plyPoint.y},${plyPoint.z}`;
-        if (checkedPoints.has(pointKey)) return;
-
-        // 计算点到线段的距离
-        const distance = this._distanceFromPointToLine(plyPoint, start, end);
-
-        if (distance <= maxDistance) {
-          nearbyPoints.push(plyPoint);
-          checkedPoints.add(pointKey);
+      // 解析顶点数据
+      const points = [];
+      const normals = [];
+      
+      for (let i = dataStartIndex; i < dataStartIndex + vertexCount && i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const values = line.split(/\s+/).map(parseFloat);
+        
+        // 每行的前三个是x,y,z坐标
+        if (values.length >= 3) {
+          points.push(new THREE.Vector3(values[0], values[1], values[2]));
+          
+          // 后三个是法向量
+          if (hasNormals && values.length >= 6) {
+            normals.push(new THREE.Vector3(values[3], values[4], values[5]).normalize());
+          }
         }
-      });
+      }
+
+      console.log(`PLY文件解析完成：${points.length}个点位，${hasNormals ? normals.length : 0}个法向量`);
+      return { points, normals };
+    } catch (error) {
+      console.error(`解析PLY文件失败：${error.message}`);
+      throw error;
     }
-
-    return nearbyPoints;
-  }
-
-  /**
-   * 计算点到线段的最短距离
-   * @param {Object} point - 待检测的点
-   * @param {Object} lineStart - 线段起点
-   * @param {Object} lineEnd - 线段终点
-   * @returns {number} 最短距离
-   */
-  _distanceFromPointToLine(point, lineStart, lineEnd) {
-    // 线段向量
-    const lineVecX = lineEnd.x - lineStart.x;
-    const lineVecY = lineEnd.y - lineStart.y;
-    const lineVecZ = lineEnd.z - lineStart.z;
-
-    // 点到线段起点的向量
-    const pointVecX = point.x - lineStart.x;
-    const pointVecY = point.y - lineStart.y;
-    const pointVecZ = point.z - lineStart.z;
-
-    // 计算线段长度的平方
-    const lineLengthSquared = lineVecX ** 2 + lineVecY ** 2 + lineVecZ ** 2;
-
-    // 如果线段长度为0，直接返回点到起点的距离
-    if (lineLengthSquared === 0) {
-      return this._calculateDistance(point, lineStart);
-    }
-
-    // 计算投影比例（0-1之间为线段上的投影）
-    const t = Math.max(0, Math.min(1,
-      (pointVecX * lineVecX + pointVecY * lineVecY + pointVecZ * lineVecZ) / lineLengthSquared
-    ));
-
-    // 计算投影点
-    const projectionX = lineStart.x + t * lineVecX;
-    const projectionY = lineStart.y + t * lineVecY;
-    const projectionZ = lineStart.z + t * lineVecZ;
-
-    // 计算点到投影点的距离
-    return this._calculateDistance(point, { x: projectionX, y: projectionY, z: projectionZ });
-  }
-
-  /**
-   * 清除已绘制的最终线段
-   */
-  clearLine() {
-    if (this.lineObject && this.modelRenderer && this.modelRenderer.scene) {
-      this.modelRenderer.scene.remove(this.lineObject);
-      this.lineObject.geometry.dispose();
-      this.lineObject.material.dispose();
-      this.lineObject = null;
-    }
-    this.selectedPoints = [];
-    this.drawnCurves = [];
-  }
-
-  /**
-   * 获取当前绘制状态
-   */
-  getDrawingState() {
-    return this.isDrawing;
   }
 
   /**
    * 渲染点位
-   * @param {Array} points - 点数据数组
-   * @returns {THREE.Points} - 点云对象
+   * @private
+   * @param {string} organName - 器官名称
+   * @param {Array<THREE.Vector3>} points - 点位数据
    */
-  renderPoints(points) {
-    const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(points.length * 3);
-
-    for (let i = 0; i < points.length; i++) {
-      const point = points[i];
-      const index = i * 3;
-      positions[index] = point.x;
-      positions[index + 1] = point.y;
-      positions[index + 2] = point.z;
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
+  _renderPoints(organName, points) {
+    // 创建点材质（黑色）
     const material = new THREE.PointsMaterial({
-      color: 0x000000,
+      color: 0x000000, // 黑色
       size: 0.5,
-      transparent: true,
-      opacity: 0.8
+      sizeAttenuation: true
     });
 
-    return new THREE.Points(geometry, material);
+    // 创建几何体
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(points.length * 3);
+    
+    for (let i = 0; i < points.length; i++) {
+      positions[i * 3] = points[i].x;
+      positions[i * 3 + 1] = points[i].y;
+      positions[i * 3 + 2] = points[i].z;
+    }
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    // 创建点云对象
+    const pointsObject = new THREE.Points(geometry, material);
+    pointsObject.name = `${organName}_points`;
+
+    // 添加到场景
+    this.scene.add(pointsObject);
+    this.pointsObjects.set(organName, pointsObject);
+
+    console.log(`渲染了${points.length}个点位`);
   }
 
   /**
    * 渲染法向量
-   * @param {Array} points - 包含法向量信息的点数据
-   * @returns {THREE.Group} - 法向量群组对象
+   * @private
+   * @param {string} organName - 器官名称
+   * @param {Array<THREE.Vector3>} points - 点位数据
+   * @param {Array<THREE.Vector3>} normals - 法向量数据
    */
-  renderNormals(points) {
-    const group = new THREE.Group();
-    const lineLength = 1;
+  _renderNormals(organName, points, normals) {
+    // 创建法向量组
+    const normalsGroup = new THREE.Group();
+    normalsGroup.name = `${organName}_normals`;
+    normalsGroup.visible = false; // 默认隐藏
 
-    points.forEach(point => {
-      const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(point.x, point.y, point.z),
-        new THREE.Vector3(
-          point.x + point.nx * lineLength,
-          point.y + point.ny * lineLength,
-          point.z + point.nz * lineLength
-        )
-      ]);
-
-      const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-      const line = new THREE.Line(geometry, material);
-      group.add(line);
+    // 创建线段材质（黑色）
+    const material = new THREE.LineBasicMaterial({
+      color: 0x000000
     });
 
-    return group;
+    // 为每个点创建法向量线段
+    const normalLength = 1.0; // 法向量长度
+    
+    for (let i = 0; i < points.length && i < normals.length; i++) {
+      const startPoint = points[i];
+      const endPoint = new THREE.Vector3(
+        startPoint.x + normals[i].x * normalLength,
+        startPoint.y + normals[i].y * normalLength,
+        startPoint.z + normals[i].z * normalLength
+      );
+
+      const geometry = new THREE.BufferGeometry().setFromPoints([startPoint, endPoint]);
+      const line = new THREE.Line(geometry, material);
+      normalsGroup.add(line);
+    }
+
+    // 添加到场景
+    this.scene.add(normalsGroup);
+    this.vectorsObjects.set(organName, normalsGroup);
+
+    console.log(`渲染了${normals.length}个法向量`);
+  }
+
+  /**
+   * 切换绘制模式
+   * @param {string} organName - 器官名称
+   * @returns {boolean} 当前绘制模式状态
+   */
+  toggleDrawing(organName) {
+    if (!this._initialized || !this.hasPlyData(organName)) {
+      console.error('切换绘制模式失败：初始化未完成或未加载PLY数据');
+      return false;
+    }
+
+    try {
+      // 如果当前不在绘制模式，进入绘制模式
+      if (!this.isDrawing) {
+        this.isDrawing = true;
+        this.currentModel = organName;
+        this._startDrawing();
+        console.log(`进入绘制模式：${organName}`);
+      } else {
+        // 如果已经在绘制模式，退出
+        this._stopDrawing();
+        console.log('退出绘制模式');
+      }
+
+      return this.isDrawing;
+    } catch (error) {
+      console.error('切换绘制模式失败：', error);
+      this._stopDrawing();
+      return false;
+    }
+  }
+
+  /**
+   * 开始绘制模式
+   * @private
+   */
+  _startDrawing() {
+    // 绑定鼠标事件
+    if (this.renderer && this.renderer.domElement) {
+      this.renderer.domElement.addEventListener('mousedown', this._handleMouseDown);
+      this.renderer.domElement.addEventListener('mousemove', this._handleMouseMove);
+      this.renderer.domElement.addEventListener('mouseup', this._handleMouseUp);
+      this.renderer.domElement.addEventListener('mouseleave', this._handleMouseLeave);
+    }
+
+    // 初始化轨迹数据
+    this.trajectoryPoints = [];
+    this.snappedTrajectoryPoints = [];
+    this.selectedPoints = [];
+
+    // 设置鼠标样式
+    if (this.renderer && this.renderer.domElement) {
+      this.renderer.domElement.style.cursor = 'crosshair';
+    }
+  }
+
+  /**
+   * 停止绘制模式
+   * @private
+   */
+  _stopDrawing() {
+    this.isDrawing = false;
+    this.isDragging = false;
+    
+    // 解绑鼠标事件
+    this._unbindEventHandlers();
+
+    // 保存当前绘制的轨迹
+    if (this.snappedTrajectoryPoints.length > 1) {
+      this.drawnCurves.push({
+        organName: this.currentModel,
+        points: [...this.snappedTrajectoryPoints],
+        selectedPoints: [...this.selectedPoints]
+      });
+    }
+
+    // 清除临时轨迹预览
+    this._clearTrajectory();
+
+    // 恢复鼠标样式
+    if (this.renderer && this.renderer.domElement) {
+      this.renderer.domElement.style.cursor = 'default';
+    }
+
+    // 清理吸附设置
+    this.snapEnabled = false;
+    this.snapCallback = null;
+  }
+
+  /**
+   * 鼠标按下事件处理
+   * @private
+   * @param {MouseEvent} event - 鼠标事件
+   */
+  _onMouseDown(event) {
+    if (!this.isDrawing) return;
+
+    this.isDragging = true;
+    this._updateMousePosition(event);
+    this._addPointAtMouse(event);
+  }
+
+  /**
+   * 鼠标移动事件处理
+   * @private
+   * @param {MouseEvent} event - 鼠标事件
+   */
+  _onMouseMove(event) {
+    if (!this.isDrawing || !this.isDragging) return;
+
+    this._updateMousePosition(event);
+    this._addPointAtMouse(event);
+    this._updateTrajectoryPreview();
+  }
+
+  /**
+   * 鼠标释放事件处理
+   * @private
+   * @param {MouseEvent} event - 鼠标事件
+   */
+  _onMouseUp(event) {
+    if (!this.isDrawing || !this.isDragging) return;
+
+    this.isDragging = false;
+    this._finalizeTrajectory();
+  }
+
+  /**
+   * 鼠标离开事件处理
+   * @private
+   */
+  _onMouseLeave() {
+    if (!this.isDrawing || !this.isDragging) return;
+
+    this.isDragging = false;
+    this._finalizeTrajectory();
+  }
+
+  /**
+   * 更新鼠标位置
+   * @private
+   * @param {MouseEvent} event - 鼠标事件
+   */
+  _updateMousePosition(event) {
+    if (!this.renderer || !this.renderer.domElement) return;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  /**
+   * 在鼠标位置添加点
+   * @private
+   * @param {MouseEvent} event - 鼠标事件
+   */
+  _addPointAtMouse(event) {
+    // 使用射线检测找到模型上的点
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    
+    // 如果启用了吸附，尝试吸附到最近的点位
+    if (this.snapEnabled && this.currentModel && this.pointsData.has(this.currentModel)) {
+      const pointsData = this.pointsData.get(this.currentModel);
+      if (pointsData && pointsData.points) {
+        const closestPoint = this._findClosestPoint(this.mouse);
+        if (closestPoint) {
+          this.trajectoryPoints.push(closestPoint.clone());
+          this.snappedTrajectoryPoints.push(closestPoint.clone());
+          
+          // 查找距离轨迹0.3范围内的点
+          this._findNearbyPoints(closestPoint, 0.3);
+          
+          // 调用吸附回调
+          if (this.snapCallback) {
+            this.snapCallback(closestPoint);
+          }
+          return;
+        }
+      }
+    }
+
+    // 如果没有吸附点，使用原始轨迹点
+    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    if (intersects.length > 0) {
+      const point = intersects[0].point;
+      this.trajectoryPoints.push(point.clone());
+    }
+  }
+
+  /**
+   * 查找最近的点位
+   * @private
+   * @param {THREE.Vector2} mouse - 鼠标位置
+   * @returns {THREE.Vector3|null} 最近的点或null
+   */
+  _findClosestPoint(mouse) {
+    if (!this.currentModel || !this.pointsData.has(this.currentModel)) return null;
+
+    const pointsData = this.pointsData.get(this.currentModel);
+    if (!pointsData || !pointsData.points || pointsData.points.length === 0) return null;
+
+    // 使用射线检测找到最接近视线的点
+    this.raycaster.setFromCamera(mouse, this.camera);
+    
+    let closestPoint = null;
+    let minDistance = Infinity;
+    
+    for (const point of pointsData.points) {
+      const distance = this.raycaster.ray.distanceToPoint(point);
+      if (distance < minDistance && distance < 1.0) { // 距离阈值
+        minDistance = distance;
+        closestPoint = point;
+      }
+    }
+
+    return closestPoint;
+  }
+
+  /**
+   * 查找距离指定点一定范围内的点
+   * @private
+   * @param {THREE.Vector3} centerPoint - 中心点
+   * @param {number} radius - 搜索半径
+   */
+  _findNearbyPoints(centerPoint, radius) {
+    if (!this.currentModel || !this.pointsData.has(this.currentModel)) return;
+
+    const pointsData = this.pointsData.get(this.currentModel);
+    if (!pointsData || !pointsData.points || pointsData.points.length === 0) return;
+
+    for (const point of pointsData.points) {
+      const distance = centerPoint.distanceTo(point);
+      if (distance <= radius) {
+        // 检查点是否已经在selectedPoints中
+        const isAlreadySelected = this.selectedPoints.some(p => 
+          p.x === point.x && p.y === point.y && p.z === point.z
+        );
+        
+        if (!isAlreadySelected) {
+          this.selectedPoints.push(point.clone());
+        }
+      }
+    }
+  }
+
+  /**
+   * 更新轨迹预览
+   * @private
+   */
+  _updateTrajectoryPreview() {
+    // 清除现有预览
+    this._clearTrajectory();
+
+    if (this.snappedTrajectoryPoints.length < 2) return;
+
+    // 创建轨迹线
+    const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+    const material = new THREE.LineBasicMaterial({
+      color: 0xFF0000, // 红色轨迹线
+      linewidth: 2
+    });
+
+    this.trajectoryLine = new THREE.Line(geometry, material);
+    this.scene.add(this.trajectoryLine);
+  }
+
+  /**
+   * 完成轨迹绘制
+   * @private
+   */
+  _finalizeTrajectory() {
+    if (this.snappedTrajectoryPoints.length < 2) {
+      this._clearTrajectory();
+      return;
+    }
+
+    // 创建最终轨迹线
+    const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+    const material = new THREE.LineBasicMaterial({
+      color: 0xFF0000,
+      linewidth: 2
+    });
+
+    this.lineObject = new THREE.Line(geometry, material);
+    this.lineObject.name = `${this.currentModel}_trajectory`;
+    this.scene.add(this.lineObject);
+
+    // 清除预览
+    this._clearTrajectory();
+
+    console.log(`轨迹绘制完成：${this.snappedTrajectoryPoints.length}个点，选中${this.selectedPoints.length}个点`);
+  }
+
+  /**
+   * 清除轨迹预览
+   * @private
+   */
+  _clearTrajectory() {
+    if (this.trajectoryLine) {
+      this.scene.remove(this.trajectoryLine);
+      this.trajectoryLine.geometry.dispose();
+      this.trajectoryLine.material.dispose();
+      this.trajectoryLine = null;
+    }
+  }
+
+  /**
+   * 清除轨迹
+   */
+  clearLine() {
+    if (this.lineObject) {
+      this.scene.remove(this.lineObject);
+      this.lineObject.geometry.dispose();
+      this.lineObject.material.dispose();
+      this.lineObject = null;
+    }
+
+    this.trajectoryPoints = [];
+    this.snappedTrajectoryPoints = [];
+    this.selectedPoints = [];
   }
 
   /**
    * 清除指定器官的PLY数据
+   * @private
    * @param {string} organName - 器官名称
    */
-  clearPlyData(organName) {
+  _clearOrganData(organName) {
+    // 清除点位对象
     if (this.pointsObjects.has(organName)) {
       const pointsObject = this.pointsObjects.get(organName);
-      this.modelRenderer.scene.remove(pointsObject);
+      this.scene.remove(pointsObject);
       pointsObject.geometry.dispose();
       pointsObject.material.dispose();
       this.pointsObjects.delete(organName);
     }
 
+    // 清除法向量对象
     if (this.vectorsObjects.has(organName)) {
       const vectorsObject = this.vectorsObjects.get(organName);
-      this.modelRenderer.scene.remove(vectorsObject);
+      this.scene.remove(vectorsObject);
       vectorsObject.children.forEach(child => {
         child.geometry.dispose();
         child.material.dispose();
@@ -766,8 +657,13 @@ class PlyRenderer {
       this.vectorsObjects.delete(organName);
     }
 
-    this.pointsData.delete(organName);
-    if (this._normalsVisibility) {
+    // 清除点位数据
+    if (this.pointsData.has(organName)) {
+      this.pointsData.delete(organName);
+    }
+
+    // 清除法向量可见性状态
+    if (this._normalsVisibility && this._normalsVisibility.has(organName)) {
       this._normalsVisibility.delete(organName);
     }
   }
@@ -776,15 +672,17 @@ class PlyRenderer {
    * 清除所有PLY数据
    */
   clearAllPlyData() {
+    // 清除所有点位对象
     this.pointsObjects.forEach((object, organName) => {
-      this.modelRenderer.scene.remove(object);
+      this.scene.remove(object);
       object.geometry.dispose();
       object.material.dispose();
     });
     this.pointsObjects.clear();
 
+    // 清除所有法向量对象
     this.vectorsObjects.forEach((object, organName) => {
-      this.modelRenderer.scene.remove(object);
+      this.scene.remove(object);
       object.children.forEach(child => {
         child.geometry.dispose();
         child.material.dispose();
@@ -792,13 +690,22 @@ class PlyRenderer {
     });
     this.vectorsObjects.clear();
 
+    // 清除所有点位数据
     this.pointsData.clear();
+    
+    // 清除法向量可见性状态
     if (this._normalsVisibility) {
       this._normalsVisibility.clear();
     }
 
+    // 清除轨迹
     this.clearLine();
-    this.clearTrajectory();
+    this.drawnCurves = [];
+
+    // 如果正在绘制，停止绘制
+    if (this.isDrawing) {
+      this._stopDrawing();
+    }
   }
 
   /**
@@ -807,16 +714,20 @@ class PlyRenderer {
    * @returns {boolean} 是否存在
    */
   hasPlyData(organName) {
-    return this.pointsData.has(organName) && this.pointsData.get(organName).length > 0;
+    return this.pointsData.has(organName) && 
+           this.pointsData.get(organName) && 
+           this.pointsData.get(organName).points && 
+           this.pointsData.get(organName).points.length > 0;
   }
 
   /**
    * 切换法向量显示状态
    * @param {string} organName - 器官名称
+   * @returns {boolean} 切换后的状态
    */
-  toggleNormals(organName) {
-    if (!this._normalsVisibility) {
-      this._normalsVisibility = new Map();
+  toggleNormalsVisibility(organName) {
+    if (!this._initialized || !this._normalsVisibility) {
+      return false;
     }
 
     const currentState = this._normalsVisibility.get(organName) || false;
@@ -825,7 +736,52 @@ class PlyRenderer {
     if (vectorsObject) {
       vectorsObject.visible = !currentState;
       this._normalsVisibility.set(organName, !currentState);
-      this.modelRenderer.renderer.render(this.modelRenderer.scene, this.modelRenderer.camera);
+      this.renderer.render(this.scene, this.camera);
+      return !currentState;
+    }
+
+    return currentState;
+  }
+
+  /**
+   * 检查是否有选中的点位
+   * @returns {boolean} 是否有选中的点位
+   */
+  hasSelectedPoints() {
+    return this.selectedPoints.length > 0;
+  }
+
+  /**
+   * 启用吸附到最近点
+   * @param {Function} callback - 吸附回调函数
+   */
+  enableSnapToClosestPoint(callback) {
+    this.snapEnabled = true;
+    this.snapCallback = callback;
+  }
+
+  /**
+   * 禁用吸附到最近点
+   */
+  disableSnapToClosestPoint() {
+    this.snapEnabled = false;
+    this.snapCallback = null;
+  }
+
+  /**
+   * 获取当前绘制状态
+   * @returns {boolean} 是否正在绘制
+   */
+  getDrawingState() {
+    return this.isDrawing;
+  }
+
+  /**
+   * 停止绘制
+   */
+  stopDrawing() {
+    if (this.isDrawing) {
+      this._stopDrawing();
     }
   }
 
@@ -833,12 +789,26 @@ class PlyRenderer {
    * 销毁PlyRenderer实例
    */
   destroy() {
-    this.clearAllPlyData();
-    if (this._unbindEventHandlers) {
-      this._unbindEventHandlers();
+    // 停止绘制模式
+    if (this.isDrawing) {
+      this._stopDrawing();
     }
+
+    // 清除所有PLY数据
+    this.clearAllPlyData();
+
+    // 解绑事件处理函数
+    this._unbindEventHandlers();
+
+    // 重置状态
     this._initialized = false;
     this.modelRenderer = null;
+    this.scene = null;
+    this.camera = null;
+    this.renderer = null;
+    this.controls = null;
+
+    console.log('PlyRenderer已销毁');
   }
 }
 
