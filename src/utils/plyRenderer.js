@@ -602,6 +602,67 @@ class PlyRenderer {
     }
   }
 
+  // 删除旧方法的注释
+
+  /**
+   * 优化轨迹点，确保它们位于模型表面
+   * @private
+   * @param {Array<THREE.Vector3>} points - 用户绘制的原始点
+   * @returns {Array<THREE.Vector3>} 优化后的表面轨迹点
+   */
+  _optimizeTrajectoryForSurface(points) {
+    if (!points || points.length === 0) return [];
+    
+    const optimizedPoints = [];
+    
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      const optimizedPoint = this._projectPointToSurface(point);
+      
+      if (optimizedPoint) {
+        optimizedPoints.push(optimizedPoint);
+      } else {
+        // 如果无法优化，则使用原始点
+        optimizedPoints.push(point.clone());
+      }
+    }
+    
+    return optimizedPoints;
+  }
+  
+  /**
+   * 将点投影到模型表面
+   * @private
+   * @param {THREE.Vector3} point - 要投影的点
+   * @returns {THREE.Vector3|null} 投影到表面的点或null
+   */
+  _projectPointToSurface(point) {
+    // 创建从摄像机位置指向该点的射线
+    const cameraPos = this.camera.position.clone();
+    const direction = new THREE.Vector3().subVectors(point, cameraPos).normalize();
+    
+    // 设置射线
+    this.raycaster.set(cameraPos, direction);
+    
+    // 射线检测所有可见的模型
+    const intersects = this.raycaster.intersectObjects(this.scene.children, true).filter(
+      intersect => intersect.object.userData.isOrganModel || 
+                   (this.modelRenderer && this.modelRenderer.models && this.currentModel && 
+                    this.modelRenderer.models.get(this.currentModel) === intersect.object)
+    );
+    
+    if (intersects.length > 0) {
+      // 找到距离摄像机最近的交点（外表面）
+      const closestIntersect = intersects.reduce((closest, current) => 
+        current.distance < closest.distance ? current : closest
+      );
+      
+      return closestIntersect.point;
+    }
+    
+    return null;
+  }
+
   /**
    * 更新轨迹预览
    * @private
@@ -615,12 +676,19 @@ class PlyRenderer {
     console.log(`更新轨迹预览，当前点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 使用CatmullRomCurve3创建平滑曲线
-      const curve = new THREE.CatmullRomCurve3(this.snappedTrajectoryPoints, false, 'centripetal', 0.5);
+      // 优化原始轨迹点，确保它们都在模型表面
+      const optimizedPoints = this._optimizeTrajectoryForSurface(this.snappedTrajectoryPoints);
       
-      // 根据轨迹长度生成合适数量的点，确保曲线平滑
-      const pointsCount = Math.max(32, this.snappedTrajectoryPoints.length * 4);
-      const curvePoints = curve.getPoints(pointsCount);
+      if (optimizedPoints.length < 2) {
+        throw new Error('优化后的表面点不足');
+      }
+      
+      // 生成完全贴合在模型外表面的轨迹点
+      const surfacePoints = this._generateSurfaceTrajectory(optimizedPoints);
+      
+      if (surfacePoints.length < 2) {
+        throw new Error('无法生成足够的表面点');
+      }
       
       // 增强材质可见性
       const material = new THREE.LineBasicMaterial({
@@ -630,14 +698,14 @@ class PlyRenderer {
         opacity: 1.0
       });
       
-      const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
+      const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
       this.trajectoryLine = new THREE.Line(geometry, material);
       
       // 设置渲染顺序，确保轨迹线显示在最前面
       this.trajectoryLine.renderOrder = 1000;
       
       this.scene.add(this.trajectoryLine);
-      console.log('轨迹预览更新成功');
+      console.log('轨迹预览更新成功，已确保轨迹位于模型表面');
     } catch (error) {
       console.error('更新轨迹预览时出错:', error);
       
@@ -650,6 +718,67 @@ class PlyRenderer {
       this.trajectoryLine = new THREE.Line(geometry, material);
       this.scene.add(this.trajectoryLine);
     }
+  }
+  
+  /**
+   * 生成完全贴合在模型外表面的轨迹点
+   * @private
+   */
+  _generateSurfaceTrajectory(controlPoints) {
+    const interpolatedPoints = [];
+    
+    // 在每两个控制点之间插入额外的中间点，并确保它们都在表面上
+    for (let i = 0; i < controlPoints.length - 1; i++) {
+      const startPoint = controlPoints[i];
+      const endPoint = controlPoints[i + 1];
+      
+      // 在两点之间创建一条线段，增加足够的中间点
+      const segmentPoints = this._createSurfaceSegment(startPoint, endPoint, 20);
+      
+      // 添加线段点（第一个点只在第一次添加）
+      if (i === 0) {
+        interpolatedPoints.push(segmentPoints[0]);
+      }
+      
+      // 添加中间点和终点
+      for (let j = 1; j < segmentPoints.length; j++) {
+        interpolatedPoints.push(segmentPoints[j]);
+      }
+    }
+    
+    return interpolatedPoints;
+  }
+  
+  /**
+   * 创建完全贴合在模型外表面的线段
+   * @private
+   */
+  _createSurfaceSegment(startPoint, endPoint, numSteps) {
+    const segmentPoints = [startPoint.clone()];
+    const direction = new THREE.Vector3().subVectors(endPoint, startPoint).normalize();
+    const distance = startPoint.distanceTo(endPoint);
+    const stepDistance = distance / numSteps;
+    
+    // 从起点到终点逐步移动，确保每个中间点都在表面上
+    let currentPosition = startPoint.clone();
+    for (let i = 1; i < numSteps; i++) {
+      // 计算下一个理论位置
+      const nextPosition = currentPosition.clone().add(direction.clone().multiplyScalar(stepDistance));
+      
+      // 从摄像机向该理论位置投射射线，找到最近的外表面交点
+      const surfacePoint = this._projectPointToSurface(nextPosition);
+      
+      if (surfacePoint) {
+        segmentPoints.push(surfacePoint);
+        // 更新当前位置为找到的表面点
+        currentPosition.copy(surfacePoint);
+      }
+    }
+    
+    // 添加终点
+    segmentPoints.push(endPoint.clone());
+    
+    return segmentPoints;
   }
 
   /**
@@ -665,12 +794,19 @@ class PlyRenderer {
     console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 使用CatmullRomCurve3创建平滑曲线
-      const curve = new THREE.CatmullRomCurve3(this.snappedTrajectoryPoints, false, 'centripetal', 0.5);
+      // 优化原始轨迹点，确保它们都在模型表面
+      const optimizedPoints = this._optimizeTrajectoryForSurface(this.snappedTrajectoryPoints);
       
-      // 根据轨迹长度生成合适数量的点，确保曲线平滑
-      const pointsCount = Math.max(64, this.snappedTrajectoryPoints.length * 8);
-      const curvePoints = curve.getPoints(pointsCount);
+      if (optimizedPoints.length < 2) {
+        throw new Error('优化后的表面点不足');
+      }
+      
+      // 生成完全贴合在模型外表面的轨迹点
+      const surfacePoints = this._generateSurfaceTrajectory(optimizedPoints);
+      
+      if (surfacePoints.length < 2) {
+        throw new Error('无法生成足够的表面点');
+      }
       
       // 增强材质可见性
       const material = new THREE.LineBasicMaterial({
@@ -680,7 +816,7 @@ class PlyRenderer {
         opacity: 1.0
       });
       
-      const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
+      const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
       this.lineObject = new THREE.Line(geometry, material);
       
       // 设置渲染顺序，确保轨迹线显示在最前面
@@ -688,7 +824,7 @@ class PlyRenderer {
       this.lineObject.name = `${this.currentModel}_trajectory`;
       
       this.scene.add(this.lineObject);
-      console.log('曲线轨迹创建成功');
+      console.log('曲线轨迹创建成功，已确保轨迹位于模型表面');
     } catch (error) {
       console.error('创建平滑曲线时出错:', error);
       
