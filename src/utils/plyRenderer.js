@@ -65,6 +65,9 @@ class PlyRenderer {
       this.drawnCurves = []; // 保存已绘制的所有曲线数据
       this.snapCallback = null; // 吸附回调函数
       this.snapEnabled = false; // 是否启用吸附
+      // 节流控制变量
+      this.lastAddPointTime = null;
+      this.lastUpdatePreviewTime = null;
 
       // 初始化射线检测器
       this.raycaster = new THREE.Raycaster();
@@ -430,8 +433,19 @@ class PlyRenderer {
     if (!this.isDrawing || !this.isDragging) return;
 
     this._updateMousePosition(event);
-    this._addPointAtMouse(event);
-    this._updateTrajectoryPreview();
+    
+    // 添加节流逻辑，限制点的添加频率
+    const now = Date.now();
+    if (!this.lastAddPointTime || now - this.lastAddPointTime > 50) { // 每50ms最多添加一个点
+      this._addPointAtMouse(event);
+      this.lastAddPointTime = now;
+    }
+    
+    // 限制预览更新频率
+    if (!this.lastUpdatePreviewTime || now - this.lastUpdatePreviewTime > 100) { // 每100ms最多更新一次预览
+      this._updateTrajectoryPreview();
+      this.lastUpdatePreviewTime = now;
+    }
   }
 
   /**
@@ -554,7 +568,13 @@ class PlyRenderer {
     // 增加距离阈值，使吸附更容易触发
     const distanceThreshold = 2.0; // 从1.0增加到2.0
     
-    for (const point of pointsData.points) {
+    // 优化：限制检查的点数，当点数过多时只检查部分点
+    const points = pointsData.points;
+    const maxCheckPoints = 1000; // 最多检查1000个点
+    const checkEveryNth = points.length > maxCheckPoints ? Math.ceil(points.length / maxCheckPoints) : 1;
+    
+    for (let i = 0; i < points.length; i += checkEveryNth) {
+      const point = points[i];
       const distance = this.raycaster.ray.distanceToPoint(point);
       if (distance < minDistance && distance < distanceThreshold) {
         minDistance = distance;
@@ -562,10 +582,8 @@ class PlyRenderer {
       }
     }
 
-    // 如果找到最近点，添加日志
-    if (closestPoint) {
-      console.log(`找到距离射线${minDistance.toFixed(3)}的最近点`);
-    }
+    // 移除频繁的日志输出，减少性能开销
+    // 仅在调试时使用：if (closestPoint) console.log(`找到距离射线${minDistance.toFixed(3)}的最近点`);
 
     return closestPoint;
   }
@@ -741,6 +759,81 @@ class PlyRenderer {
   }
 
   /**
+   * 计算点到线段的最短距离
+   * @private
+   * @param {THREE.Vector3} point - 要测量的点
+   * @param {THREE.Vector3} lineStart - 线段起点
+   * @param {THREE.Vector3} lineEnd - 线段终点
+   * @returns {number} 点到线段的最短距离
+   */
+  _pointToLineDistance(point, lineStart, lineEnd) {
+    // 计算线段向量
+    const lineVector = new THREE.Vector3().subVectors(lineEnd, lineStart);
+    // 计算点到线段起点的向量
+    const pointVector = new THREE.Vector3().subVectors(point, lineStart);
+    // 计算线段长度的平方
+    const lineLengthSquared = lineVector.lengthSq();
+    
+    // 如果线段长度为0，直接返回点到线段起点的距离
+    if (lineLengthSquared === 0) {
+      return point.distanceTo(lineStart);
+    }
+    
+    // 计算投影系数
+    const t = Math.max(0, Math.min(1, pointVector.dot(lineVector) / lineLengthSquared));
+    // 计算投影点
+    const projection = new THREE.Vector3().copy(lineStart).add(lineVector.multiplyScalar(t));
+    // 返回点到投影点的距离
+    return point.distanceTo(projection);
+  }
+
+  /**
+   * 收集距离轨迹线段很近的点
+   * @private
+   * @param {Array<THREE.Vector3>} trajectoryPoints - 轨迹点数组
+   * @param {number} distanceThreshold - 距离阈值
+   * @returns {Array<THREE.Vector3>} 收集到的靠近线段的点
+   */
+  _collectPointsNearSegments(trajectoryPoints, distanceThreshold = 0.5) {
+    const collectedPoints = [];
+    
+    // 确保有当前模型的点数据
+    if (!this.currentModel || !this.pointsData.has(this.currentModel)) {
+      return collectedPoints;
+    }
+    
+    const modelPoints = this.pointsData.get(this.currentModel).points;
+    if (!modelPoints || modelPoints.length === 0) {
+      return collectedPoints;
+    }
+    
+    // 性能优化：限制检查的点数
+    const maxCheckPoints = 2000;
+    const checkEveryNth = modelPoints.length > maxCheckPoints ? 
+      Math.ceil(modelPoints.length / maxCheckPoints) : 1;
+    
+    // 遍历轨迹线段
+    for (let i = 0; i < trajectoryPoints.length - 1; i++) {
+      const startPoint = trajectoryPoints[i];
+      const endPoint = trajectoryPoints[i + 1];
+      
+      // 遍历模型点
+      for (let j = 0; j < modelPoints.length; j += checkEveryNth) {
+        const modelPoint = modelPoints[j];
+        // 计算点到线段的距离
+        const distance = this._pointToLineDistance(modelPoint, startPoint, endPoint);
+        
+        // 如果距离小于阈值，添加到收集的点中
+        if (distance < distanceThreshold) {
+          collectedPoints.push(modelPoint.clone());
+        }
+      }
+    }
+    
+    return collectedPoints;
+  }
+
+  /**
    * 完成轨迹绘制
    * @private
    */
@@ -750,7 +843,8 @@ class PlyRenderer {
       return;
     }
 
-    console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
+    // 移除频繁的日志输出，减少性能开销
+    // console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
       // 简化实现：直接使用用户触碰的所有点连接成线
@@ -771,11 +865,18 @@ class PlyRenderer {
       // 记录轨迹点信息
       this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
       
-      // 更新selectedPoints，确保包含所有轨迹点
-      this.selectedPoints = [...this.snappedTrajectoryPoints];
+      // 收集距离轨迹线段很近的点
+      const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
+      
+      // 更新selectedPoints，包含轨迹点和靠近线段的点
+      this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
       
       this.scene.add(this.lineObject);
-      console.log('轨迹创建成功');
+      
+      // 可选：添加调试信息
+      console.log(`轨迹创建成功，收集了${nearbyPoints.length}个靠近线段的点`);
+      // 移除频繁的日志输出，减少性能开销
+      // console.log('轨迹创建成功');
     } catch (error) {
       console.error('创建轨迹时出错:', error);
       
@@ -791,16 +892,23 @@ class PlyRenderer {
       // 记录轨迹点信息
       this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
       
-      // 更新selectedPoints，确保包含所有轨迹点
-      this.selectedPoints = [...this.snappedTrajectoryPoints];
+      // 收集距离轨迹线段很近的点
+      const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
+      
+      // 更新selectedPoints，包含轨迹点和靠近线段的点
+      this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
       
       this.scene.add(this.lineObject);
+      
+      // 可选：添加调试信息
+      console.log(`使用后备方案，收集了${nearbyPoints.length}个靠近线段的点`);
     }
 
     // 清除预览
     this._clearTrajectory();
 
-    console.log(`轨迹绘制完成：${this.snappedTrajectoryPoints.length}个点，选中${this.selectedPoints.length}个点`);
+    // 移除频繁的日志输出，减少性能开销
+    // console.log(`轨迹绘制完成：${this.snappedTrajectoryPoints.length}个点，选中${this.selectedPoints.length}个点`);
   }
 
   /**
