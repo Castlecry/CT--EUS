@@ -357,7 +357,6 @@ class PlyRenderer {
     // 初始化轨迹数据
     this.trajectoryPoints = [];
     this.snappedTrajectoryPoints = [];
-    this.selectedPoints = [];
 
     // 设置鼠标样式
     if (this.renderer && this.renderer.domElement) {
@@ -386,8 +385,7 @@ class PlyRenderer {
     if (this.snappedTrajectoryPoints.length > 1) {
       this.drawnCurves.push({
         organName: this.currentModel,
-        points: [...this.snappedTrajectoryPoints],
-        selectedPoints: [...this.selectedPoints]
+        points: [...this.snappedTrajectoryPoints]
       });
     }
 
@@ -528,9 +526,6 @@ class PlyRenderer {
       this.trajectoryPoints.push(pointToAdd.clone());
       this.snappedTrajectoryPoints.push(pointToAdd.clone());
       
-      // 查找距离轨迹0.3范围内的点
-      this._findNearbyPoints(pointToAdd, 0.3);
-      
       // 调用吸附回调
       if (this.snapCallback) {
         this.snapCallback(pointToAdd);
@@ -575,32 +570,7 @@ class PlyRenderer {
     return closestPoint;
   }
 
-  /**
-   * 查找距离指定点一定范围内的点
-   * @private
-   * @param {THREE.Vector3} centerPoint - 中心点
-   * @param {number} radius - 搜索半径
-   */
-  _findNearbyPoints(centerPoint, radius) {
-    if (!this.currentModel || !this.pointsData.has(this.currentModel)) return;
-
-    const pointsData = this.pointsData.get(this.currentModel);
-    if (!pointsData || !pointsData.points || pointsData.points.length === 0) return;
-
-    for (const point of pointsData.points) {
-      const distance = centerPoint.distanceTo(point);
-      if (distance <= radius) {
-        // 检查点是否已经在selectedPoints中
-        const isAlreadySelected = this.selectedPoints.some(p => 
-          p.x === point.x && p.y === point.y && p.z === point.z
-        );
-        
-        if (!isAlreadySelected) {
-          this.selectedPoints.push(point.clone());
-        }
-      }
-    }
-  }
+  // 删除近距离点计算功能，以提高性能
 
   // 删除旧方法的注释
 
@@ -676,36 +646,24 @@ class PlyRenderer {
     console.log(`更新轨迹预览，当前点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 优化原始轨迹点，确保它们都在模型表面
-      const optimizedPoints = this._optimizeTrajectoryForSurface(this.snappedTrajectoryPoints);
-      
-      if (optimizedPoints.length < 2) {
-        throw new Error('优化后的表面点不足');
-      }
-      
-      // 生成完全贴合在模型外表面的轨迹点
-      const surfacePoints = this._generateSurfaceTrajectory(optimizedPoints);
-      
-      if (surfacePoints.length < 2) {
-        throw new Error('无法生成足够的表面点');
-      }
-      
-      // 增强材质可见性
+      // 简化实现：直接使用用户触碰的所有点连接成线用于预览
       const material = new THREE.LineBasicMaterial({
-        color: 0xFF0000, // 红色轨迹线
-        linewidth: 3,    // 增加线宽
-        transparent: false,
-        opacity: 1.0
+        color: 0x00FF00, // 绿色预览线
+        linewidth: 2,
+        transparent: true,
+        opacity: 0.7
       });
       
-      const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
+      // 直接使用所有用户触碰的点，确保每两个相邻点都正确连接
+      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
       this.trajectoryLine = new THREE.Line(geometry, material);
       
-      // 设置渲染顺序，确保轨迹线显示在最前面
-      this.trajectoryLine.renderOrder = 1000;
+      // 设置渲染顺序，确保预览线显示在最前面
+      this.trajectoryLine.renderOrder = 999;
       
       this.scene.add(this.trajectoryLine);
-      console.log('轨迹预览更新成功，已确保轨迹位于模型表面');
+      console.log('轨迹预览更新成功，直接使用用户触碰点');
+      console.log(`轨迹预览更新成功，已连接 ${this.snappedTrajectoryPoints.length - 1} 条线段`);
     } catch (error) {
       console.error('更新轨迹预览时出错:', error);
       
@@ -717,6 +675,7 @@ class PlyRenderer {
       const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
       this.trajectoryLine = new THREE.Line(geometry, material);
       this.scene.add(this.trajectoryLine);
+      console.log(`使用原始轨迹点作为后备，已连接 ${this.snappedTrajectoryPoints.length - 1} 条线段`);
     }
   }
   
@@ -794,21 +753,7 @@ class PlyRenderer {
     console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 优化原始轨迹点，确保它们都在模型表面
-      const optimizedPoints = this._optimizeTrajectoryForSurface(this.snappedTrajectoryPoints);
-      
-      if (optimizedPoints.length < 2) {
-        throw new Error('优化后的表面点不足');
-      }
-      
-      // 生成完全贴合在模型外表面的轨迹点
-      const surfacePoints = this._generateSurfaceTrajectory(optimizedPoints);
-      
-      if (surfacePoints.length < 2) {
-        throw new Error('无法生成足够的表面点');
-      }
-      
-      // 增强材质可见性
+      // 简化实现：直接使用用户触碰的所有点连接成线
       const material = new THREE.LineBasicMaterial({
         color: 0xFF0000,
         linewidth: 3,  // 增加线宽
@@ -816,17 +761,23 @@ class PlyRenderer {
         opacity: 1.0
       });
       
-      const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
+      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
       this.lineObject = new THREE.Line(geometry, material);
       
       // 设置渲染顺序，确保轨迹线显示在最前面
       this.lineObject.renderOrder = 1000;
       this.lineObject.name = `${this.currentModel}_trajectory`;
       
+      // 记录轨迹点信息
+      this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
+      
+      // 更新selectedPoints，确保包含所有轨迹点
+      this.selectedPoints = [...this.snappedTrajectoryPoints];
+      
       this.scene.add(this.lineObject);
-      console.log('曲线轨迹创建成功，已确保轨迹位于模型表面');
+      console.log('轨迹创建成功');
     } catch (error) {
-      console.error('创建平滑曲线时出错:', error);
+      console.error('创建轨迹时出错:', error);
       
       // 出错时使用简单的折线作为后备
       const material = new THREE.LineBasicMaterial({
@@ -836,6 +787,13 @@ class PlyRenderer {
       const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
       this.lineObject = new THREE.Line(geometry, material);
       this.lineObject.name = `${this.currentModel}_trajectory`;
+      
+      // 记录轨迹点信息
+      this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
+      
+      // 更新selectedPoints，确保包含所有轨迹点
+      this.selectedPoints = [...this.snappedTrajectoryPoints];
+      
       this.scene.add(this.lineObject);
     }
 
@@ -871,6 +829,7 @@ class PlyRenderer {
 
     this.trajectoryPoints = [];
     this.snappedTrajectoryPoints = [];
+    // 确保selectedPoints也被清空
     this.selectedPoints = [];
   }
 
@@ -987,11 +946,18 @@ class PlyRenderer {
   }
 
   /**
-   * 检查是否有选中的点位
-   * @returns {boolean} 是否有选中的点位
+   * 获取最近绘制轨迹的点
+   */
+  getCurrentTrajectoryPoints() {
+    return this.lineObject ? this.lineObject.trajectoryPoints || [] : [];
+  }
+
+  /**
+   * 检查是否有选中的点
+   * @returns {boolean} 是否有选中的点
    */
   hasSelectedPoints() {
-    return this.selectedPoints.length > 0;
+    return this.getCurrentTrajectoryPoints().length > 0;
   }
 
   /**
