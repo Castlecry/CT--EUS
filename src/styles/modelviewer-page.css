@@ -657,16 +657,31 @@ detail-row {
 }
 
 .model-detail-view {
-  /* 模型详情视图样式 */
-  height: 100%;
+  /* 模型详情视图样式 - 与其他两个框保持一致 */
+  flex-shrink: 0;
+  background-color: white;
+  border-radius: 12px;
+  padding: 15px 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
+  width: 100%;
+  margin: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  max-height: 50vh;
 }
 
 .model-detail-view .model-info-content {
   flex: 1;
   overflow-y: auto;
+  padding: 20px;
   padding-right: 5px;
+  height: 100%; /* 确保高度占满 */
 }
 
 .model-info-btn {

@@ -664,7 +664,7 @@ class PlyRenderer {
     console.log(`更新轨迹预览，当前点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 简化实现：直接使用用户触碰的所有点连接成线用于预览
+      // 使用模型表面平滑轨迹
       const material = new THREE.LineBasicMaterial({
         color: 0x00FF00, // 绿色预览线
         linewidth: 2,
@@ -672,8 +672,9 @@ class PlyRenderer {
         opacity: 0.7
       });
       
-      // 直接使用所有用户触碰的点，确保每两个相邻点都正确连接
-      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+      // 生成贴合模型表面的平滑轨迹
+      const surfacePoints = this._generateSurfaceTrajectory(this.snappedTrajectoryPoints);
+      const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
       this.trajectoryLine = new THREE.Line(geometry, material);
       
       // 设置渲染顺序，确保预览线显示在最前面
@@ -685,15 +686,31 @@ class PlyRenderer {
     } catch (error) {
       console.error('更新轨迹预览时出错:', error);
       
-      // 出错时使用简单的折线作为后备
-      const material = new THREE.LineBasicMaterial({
-        color: 0xFF0000,
-        linewidth: 3
-      });
-      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
-      this.trajectoryLine = new THREE.Line(geometry, material);
-      this.scene.add(this.trajectoryLine);
-      console.log(`使用原始轨迹点作为后备，已连接 ${this.snappedTrajectoryPoints.length - 1} 条线段`);
+      try {
+        // 出错时尝试使用表面轨迹作为后备
+        const material = new THREE.LineBasicMaterial({
+          color: 0xFF0000,
+          linewidth: 3
+        });
+        
+        // 生成贴合模型表面的平滑轨迹
+        const surfacePoints = this._generateSurfaceTrajectory(this.snappedTrajectoryPoints);
+        const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
+        this.trajectoryLine = new THREE.Line(geometry, material);
+        this.scene.add(this.trajectoryLine);
+        console.log(`预览使用表面轨迹作为后备，已生成平滑轨迹`);
+      } catch (fallbackError) {
+        console.error('预览生成表面轨迹时出错，使用原始点作为最终后备:', fallbackError);
+        // 如果表面轨迹也失败，才使用简单的折线
+        const material = new THREE.LineBasicMaterial({
+          color: 0xFF0000,
+          linewidth: 3
+        });
+        const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+        this.trajectoryLine = new THREE.Line(geometry, material);
+        this.scene.add(this.trajectoryLine);
+        console.log(`预览使用原始轨迹点作为最终后备`);
+      }
     }
   }
   
@@ -847,7 +864,7 @@ class PlyRenderer {
     // console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 简化实现：直接使用用户触碰的所有点连接成线
+      // 使用模型表面平滑轨迹
       const material = new THREE.LineBasicMaterial({
         color: 0xFF0000,
         linewidth: 3,  // 增加线宽
@@ -855,21 +872,23 @@ class PlyRenderer {
         opacity: 1.0
       });
       
-      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+      // 生成贴合模型表面的平滑轨迹
+      const surfacePoints = this._generateSurfaceTrajectory(this.snappedTrajectoryPoints);
+      const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
       this.lineObject = new THREE.Line(geometry, material);
       
       // 设置渲染顺序，确保轨迹线显示在最前面
       this.lineObject.renderOrder = 1000;
       this.lineObject.name = `${this.currentModel}_trajectory`;
       
-      // 记录轨迹点信息
-      this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
+      // 记录轨迹点信息（使用表面平滑点）
+      this.lineObject.trajectoryPoints = [...surfacePoints];
       
-      // 收集距离轨迹线段很近的点
-      const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
+      // 收集距离轨迹线段很近的点（基于表面平滑轨迹）
+      const nearbyPoints = this._collectPointsNearSegments(surfacePoints, 0.5);
       
-      // 更新selectedPoints，包含轨迹点和靠近线段的点
-      this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
+      // 更新selectedPoints，包含表面轨迹点和靠近线段的点
+      this.selectedPoints = [...surfacePoints, ...nearbyPoints];
       
       this.scene.add(this.lineObject);
       
@@ -880,23 +899,42 @@ class PlyRenderer {
     } catch (error) {
       console.error('创建轨迹时出错:', error);
       
-      // 出错时使用简单的折线作为后备
-      const material = new THREE.LineBasicMaterial({
-        color: 0xFF0000,
-        linewidth: 3
-      });
-      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
-      this.lineObject = new THREE.Line(geometry, material);
-      this.lineObject.name = `${this.currentModel}_trajectory`;
-      
-      // 记录轨迹点信息
-      this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
-      
-      // 收集距离轨迹线段很近的点
-      const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
-      
-      // 更新selectedPoints，包含轨迹点和靠近线段的点
-      this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
+      // 出错时尝试使用表面轨迹作为后备
+      try {
+        const material = new THREE.LineBasicMaterial({
+          color: 0xFF0000,
+          linewidth: 3
+        });
+        
+        // 生成贴合模型表面的平滑轨迹
+        const surfacePoints = this._generateSurfaceTrajectory(this.snappedTrajectoryPoints);
+        const geometry = new THREE.BufferGeometry().setFromPoints(surfacePoints);
+        this.lineObject = new THREE.Line(geometry, material);
+        this.lineObject.name = `${this.currentModel}_trajectory`;
+        
+        // 记录轨迹点信息（使用表面平滑点）
+        this.lineObject.trajectoryPoints = [...surfacePoints];
+        
+        // 收集距离轨迹线段很近的点（基于表面平滑轨迹）
+        const nearbyPoints = this._collectPointsNearSegments(surfacePoints, 0.5);
+        
+        // 更新selectedPoints，包含表面轨迹点和靠近线段的点
+        this.selectedPoints = [...surfacePoints, ...nearbyPoints];
+      } catch (fallbackError) {
+        console.error('创建表面轨迹时出错，使用原始点作为最终后备:', fallbackError);
+        // 如果表面轨迹也失败，才使用简单的折线
+        const material = new THREE.LineBasicMaterial({
+          color: 0xFF0000,
+          linewidth: 3
+        });
+        const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+        this.lineObject = new THREE.Line(geometry, material);
+        this.lineObject.name = `${this.currentModel}_trajectory`;
+        this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
+        
+        const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
+        this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
+      }
       
       this.scene.add(this.lineObject);
       
@@ -976,6 +1014,9 @@ class PlyRenderer {
     if (this._normalsVisibility && this._normalsVisibility.has(organName)) {
       this._normalsVisibility.delete(organName);
     }
+    
+    // 清除轨迹，确保清除模型后轨迹也被清除
+    this.clearLine();
   }
 
   /**
@@ -1047,6 +1088,7 @@ class PlyRenderer {
       vectorsObject.visible = !currentState;
       this._normalsVisibility.set(organName, !currentState);
       this.renderer.render(this.scene, this.camera);
+      console.log(`${organName}法向量显示状态: ${!currentState}`);
       return !currentState;
     }
 
