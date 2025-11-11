@@ -3,8 +3,8 @@ import ModelViewerPage from './views/ModelViewerPage.vue';
 </script>
 
 <template>
-  <router-view />
-  <!-- <ModelViewerPage /> -->
+  <!-- <router-view /> -->
+  <ModelViewerPage />
 </template>
 
 <style>
