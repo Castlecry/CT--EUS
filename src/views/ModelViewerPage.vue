@@ -186,34 +186,38 @@
                         v-for="trajectory in trajectoryHistory" 
                         :key="trajectory.id"
                         class="trajectory-item"
-                        :class="{ active: currentDisplayedTrajectoryId === trajectory.id }"
+                        :class="{ active: currentDisplayedTrajectoryId === trajectory.id, uploaded: trajectory.uploaded }"
                       >
                         <div class="trajectory-info">
                           <div class="trajectory-color" :style="{ backgroundColor: '#' + trajectory.color.toString(16).padStart(6, '0') }"></div>
-                          <span class="trajectory-name">{{ trajectory.name }}</span>
+                          <span class="trajectory-name">{{ trajectory.name }} <span v-if="trajectory.uploaded" class="uploaded-badge">已上传</span></span>
                         </div>
                         <div class="trajectory-actions">
-                          <button 
-                            class="action-btn show-btn" 
-                            @click="showHistoryTrajectory(trajectory.id)"
-                            :disabled="currentDisplayedTrajectoryId === trajectory.id"
-                          >
-                            显示
-                          </button>
-                          <button 
-                            class="action-btn hide-btn" 
-                            @click="hideHistoryTrajectory()"
-                            :disabled="currentDisplayedTrajectoryId !== trajectory.id"
-                          >
-                            取消选中
-                          </button>
-                          <button 
-                            class="action-btn upload-btn" 
-                            @click="uploadTrajectory(trajectory.id)"
-                            :disabled="isDrawingMode"
-                          >
-                            上传
-                          </button>
+                          <!-- 未上传的轨迹显示全部按钮 -->
+                          <template v-if="!trajectory.uploaded">
+                            <button 
+                              class="action-btn show-btn" 
+                              @click="showHistoryTrajectory(trajectory.id)"
+                              :disabled="currentDisplayedTrajectoryId === trajectory.id"
+                            >
+                              显示
+                            </button>
+                            <button 
+                              class="action-btn hide-btn" 
+                              @click="hideHistoryTrajectory()"
+                              :disabled="currentDisplayedTrajectoryId !== trajectory.id"
+                            >
+                              取消选中
+                            </button>
+                            <button 
+                              class="action-btn upload-btn" 
+                              @click="uploadTrajectory(trajectory.id)"
+                              :disabled="isDrawingMode"
+                            >
+                              上传
+                            </button>
+                          </template>
+                          <!-- 已上传的轨迹只显示删除按钮 -->
                           <button 
                             class="action-btn delete-btn" 
                             @click="deleteHistoryTrajectory(trajectory.id)"
@@ -248,6 +252,60 @@
                               </span>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 校准轨迹记录区域 -->
+                  <div class="calibration-trajectory-section">
+                    <div class="section-header">
+                      <h5>校准轨迹记录</h5>
+                      <button 
+                        class="toggle-history-btn" 
+                        @click="toggleCalibrationTrajectory"
+                        :class="{ active: showCalibrationTrajectory }"
+                      >
+                        {{ showCalibrationTrajectory ? '隐藏' : '显示' }}
+                      </button>
+                    </div>
+                    
+                    <div v-if="showCalibrationTrajectory" class="trajectory-list">
+                      <div v-if="calibrationTrajectory.length === 0" class="no-trajectories">
+                        暂无校准轨迹记录
+                      </div>
+                      <div 
+                        v-for="trajectory in calibrationTrajectory" 
+                        :key="trajectory.id"
+                        class="trajectory-item"
+                        :class="{ active: currentDisplayedCalibrationId === trajectory.id }"
+                      >
+                        <div class="trajectory-info">
+                          <div class="trajectory-color" :style="{ backgroundColor: '#' + trajectory.color.toString(16).padStart(6, '0') }"></div>
+                          <span class="trajectory-name">{{ trajectory.name }}</span>
+                        </div>
+                        <div class="trajectory-actions">
+                          <button 
+                            class="action-btn show-btn" 
+                            @click="displayCalibrationTrajectory(trajectory.id)"
+                            :disabled="currentDisplayedCalibrationId === trajectory.id"
+                          >
+                            显示
+                          </button>
+                          <button 
+                            class="action-btn hide-btn" 
+                            @click="hideCalibrationTrajectory()"
+                            :disabled="currentDisplayedCalibrationId !== trajectory.id"
+                          >
+                            取消选中
+                          </button>
+                          <button 
+                            class="action-btn delete-btn" 
+                            @click="deleteCalibrationTrajectory(trajectory.id)"
+                            :disabled="isDrawingMode"
+                          >
+                            删除
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -353,7 +411,7 @@
 import '../styles/modelviewer-page.css';
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly } from '../api/dicom.js';
+import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly, getCalibrationTrajectoryPly } from '../api/dicom.js';
 import ModelRenderer from '../utils/modelRenderer.js';
 import PlyRenderer from '../utils/plyRenderer.js';
 import {
@@ -396,6 +454,11 @@ const loading = ref({});
 const loadingAll = ref(false);
 const allLoaded = ref(false);
 const isPanelExpanded = ref(true); // 控制面板展开/收起状态
+// 校准轨迹相关状态
+const calibrationTrajectory = ref([]); // 校准轨迹记录
+const loadingCalibration = ref(false); // 校准轨迹加载状态
+const showCalibrationTrajectory = ref(true); // 是否显示校准轨迹区域
+const currentDisplayedCalibrationId = ref(null); // 当前显示的校准轨迹ID
 
 // 视图切换状态
 const currentViewIndex = ref(0);
@@ -1061,6 +1124,13 @@ const showHistoryTrajectory = (trajectoryId) => {
   if (!plyRenderer.value || isDrawingMode.value) return;
   
   try {
+    // 检查轨迹是否已上传，如果已上传则不显示
+    const trajectory = trajectoryHistory.value.find(t => t.id === trajectoryId);
+    if (trajectory && trajectory.uploaded) {
+      console.warn('已上传的轨迹不能查看');
+      return;
+    }
+    
     if (typeof plyRenderer.value.showHistoryTrajectory === 'function') {
       const success = plyRenderer.value.showHistoryTrajectory(trajectoryId);
       if (success) {
@@ -1166,12 +1236,127 @@ const uploadTrajectory = async (trajectoryId) => {
     // 调用API上传，使用blob和batchId参数
     const result = await uploadTrajectoryPly(blob, batchId);
     
+    // 标记轨迹为已上传
+    trajectory.uploaded = true;
+    
+    // 尝试获取校准轨迹
+    try {
+      console.log('尝试获取校准轨迹');
+      const calibrationResult = await getCalibrationTrajectoryPly(batchId);
+      
+      // 将校准轨迹添加到记录中
+      const calibrationItem = {
+        id: `calibration_${Date.now()}`,
+        name: `校准轨迹_${trajectory.name}`,
+        color: Math.floor(Math.random()*16777215), // 随机颜色
+        batchId: batchId,
+        dataUrl: calibrationResult.data,
+        timestamp: new Date().toISOString()
+      };
+      
+      calibrationTrajectory.value.push(calibrationItem);
+      console.log('校准轨迹已添加到记录:', calibrationItem);
+    } catch (calibrationError) {
+      console.warn('获取校准轨迹失败，但不影响上传结果:', calibrationError);
+    }
+    
     // 显示成功消息
     alert('轨迹点云上传成功！');
     console.log('轨迹点云上传成功:', result);
   } catch (error) {
     console.error('上传轨迹点云失败:', error);
     alert('上传失败：' + (error.message || '未知错误'));
+  }
+};
+
+// 切换校准轨迹区域显示状态
+const toggleCalibrationTrajectory = () => {
+  showCalibrationTrajectory.value = !showCalibrationTrajectory.value;
+};
+
+// 显示校准轨迹
+const displayCalibrationTrajectory = async (trajectoryId) => {
+  if (!plyRenderer.value || isDrawingMode.value) return;
+  
+  try {
+    // 先隐藏当前显示的轨迹
+    if (currentDisplayedCalibrationId.value) {
+      hideCalibrationTrajectory();
+    }
+    
+    // 查找校准轨迹
+    const trajectory = calibrationTrajectory.value.find(t => t.id === trajectoryId);
+    if (!trajectory || !trajectory.dataUrl) {
+      console.error('校准轨迹数据无效');
+      return;
+    }
+    
+    loadingCalibration.value = true;
+    
+    // 使用PlyRenderer显示校准轨迹，按照0.5秒间隔连接点
+    if (typeof plyRenderer.value.showCalibrationTrajectory === 'function') {
+      await plyRenderer.value.showCalibrationTrajectory(trajectory.dataUrl, {
+        interval: 0.5, // 0.5秒间隔连接点
+        color: trajectory.color
+      });
+      currentDisplayedCalibrationId.value = trajectoryId;
+      console.log('校准轨迹已显示:', trajectoryId);
+    } else {
+      console.warn('PlyRenderer没有showCalibrationTrajectory方法');
+    }
+  } catch (error) {
+    console.error('显示校准轨迹失败:', error);
+    alert('显示校准轨迹失败：' + (error.message || '未知错误'));
+  } finally {
+    loadingCalibration.value = false;
+  }
+};
+
+// 隐藏校准轨迹
+const hideCalibrationTrajectory = () => {
+  if (!plyRenderer.value) return;
+  
+  try {
+    // 隐藏当前显示的校准轨迹
+    if (typeof plyRenderer.value.hideCalibrationTrajectory === 'function') {
+      plyRenderer.value.hideCalibrationTrajectory();
+    }
+    currentDisplayedCalibrationId.value = null;
+    console.log('校准轨迹已隐藏');
+  } catch (error) {
+    console.error('隐藏校准轨迹失败:', error);
+  }
+};
+
+// 删除校准轨迹
+const deleteCalibrationTrajectory = (trajectoryId) => {
+  if (!plyRenderer.value || isDrawingMode.value) return;
+  
+  try {
+    // 如果删除的是当前显示的轨迹，先隐藏
+    if (trajectoryId === currentDisplayedCalibrationId.value) {
+      hideCalibrationTrajectory();
+    }
+    
+    // 从列表中删除
+    const index = calibrationTrajectory.value.findIndex(t => t.id === trajectoryId);
+    if (index !== -1) {
+      const trajectory = calibrationTrajectory.value[index];
+      // 释放URL对象
+      if (trajectory.dataUrl) {
+        try {
+          URL.revokeObjectURL(trajectory.dataUrl);
+        } catch (e) {
+          console.warn('释放URL对象失败:', e);
+        }
+      }
+      // 从数组中移除
+      calibrationTrajectory.value.splice(index, 1);
+      console.log('校准轨迹已删除:', trajectoryId);
+    }
+  } catch (error) {
+    console.error('删除校准轨迹失败:', error);
+    alert('删除校准轨迹失败：' + (error.message || '未知错误'));
   }
 };
 

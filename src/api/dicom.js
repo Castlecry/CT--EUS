@@ -214,6 +214,62 @@ export const uploadTrajectoryPly = async (plyBlob, batchId) => {
   }
 };
 
+/**
+ * 获取校准轨迹的PLY文件
+ * @param {string|number} batchId - 批次ID
+ * @returns {Promise} 返回校准轨迹的PLY模型数据
+ */
+export const getCalibrationTrajectoryPly = async (batchId) => {
+  console.log('getCalibrationTrajectoryPly函数开始执行，batchId:', batchId);
+  try {
+    // 参数校验
+    if (!batchId) {
+      console.error('getCalibrationTrajectoryPly: 参数错误 - batchId为空');
+      throw new Error("参数错误：批次ID不能为空");
+    }
+
+    // 确保参数是字符串类型
+    const batchIdStr = String(batchId).trim();
+    
+    console.log('getCalibrationTrajectoryPly: 处理后的参数 - batchId:', batchIdStr);
+
+    // 构造完整URL用于调试
+    const url = `${apiClient.defaults.baseURL}/eus/calibration-trajectory?batchId=${encodeURIComponent(batchIdStr)}`;
+    console.log('getCalibrationTrajectoryPly 请求URL:', url);
+
+    console.log('getCalibrationTrajectoryPly: 准备发送请求');
+    const response = await apiClient.get('/eus/calibration-trajectory', {
+      params: {
+        batchId: batchIdStr
+      },
+      responseType: 'blob'
+    });
+
+    console.log('getCalibrationTrajectoryPly: 请求成功，response.data类型:', typeof response.data);
+    console.log('getCalibrationTrajectoryPly: response.data是否为Blob:', response.data instanceof Blob);
+    
+    // 创建可直接使用的URL
+    const objectUrl = URL.createObjectURL(response.data);
+    console.log('校准轨迹PLY模型URL:', objectUrl);
+    
+    // 准备返回对象
+    const result = {
+      batchId: batchIdStr,
+      data: objectUrl,
+      size: response.data.size
+    };
+    console.log('getCalibrationTrajectoryPly: 返回结果:', result);
+    
+    return result;
+  } catch (error) {
+    console.error(`获取校准轨迹PLY模型失败（batchId: ${batchId}）:`, error);
+    if (error.response) {
+      console.error('服务器响应:', error.response);
+    }
+    throw error;
+  }
+};
+
 export default {
   uploadDicomFiles,
   processDicomFiles,

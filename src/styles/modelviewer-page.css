@@ -613,6 +613,28 @@ detail-row {
   background-color: #f8fff8;
 }
 
+/* 已上传轨迹样式 */
+.trajectory-item.uploaded {
+  background-color: #f8f9fa;
+  opacity: 0.85;
+}
+
+.trajectory-item.uploaded .trajectory-name {
+  position: relative;
+}
+
+.uploaded-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background-color: #28a745;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 10px;
+  vertical-align: middle;
+}
+
 .trajectory-info {
   display: flex;
   align-items: center;
@@ -633,7 +655,75 @@ detail-row {
 
 .trajectory-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+}
+
+/* 校准轨迹记录区域样式 */
+.calibration-trajectory-section {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.calibration-trajectory-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.empty-calibration {
+  text-align: center;
+  padding: 20px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.calibration-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 10px;
+  background-color: white;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  transition: all 0.3s;
+}
+
+.calibration-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #007bff;
+}
+
+.calibration-item.selected {
+  border-color: #007bff;
+  background-color: #e3f2fd;
+}
+
+.calibration-info {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.calibration-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-right: 10px;
+  border: 1px solid #ddd;
+}
+
+.calibration-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.calibration-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .action-btn {

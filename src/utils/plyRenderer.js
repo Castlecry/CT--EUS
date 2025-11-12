@@ -20,6 +20,10 @@ class PlyRenderer {
     
     // 轨迹历史记录管理器
     this.trajectoryHistory = new PlyHistoryManager();
+    
+    // 校准轨迹相关
+    this.calibrationTrajectories = new Map(); // 存储校准轨迹
+    this.currentCalibrationTrajectory = null; // 当前显示的校准轨迹
   }
 
   /**
@@ -962,6 +966,159 @@ class PlyRenderer {
   }
 
   /**
+   * 显示校准轨迹，按照指定间隔连接点
+   * @param {string} dataUrl - PLY文件的URL
+   * @param {Object} options - 配置选项
+   * @param {number} options.interval - 点连接间隔（秒）
+   * @param {number} options.color - 轨迹颜色
+   */
+  async showCalibrationTrajectory(dataUrl, options = {}) {
+    console.log('showCalibrationTrajectory方法被调用:', { dataUrl, options });
+    
+    // 先隐藏当前校准轨迹
+    this.hideCalibrationTrajectory();
+    
+    try {
+      // 解析PLY文件
+      const response = await fetch(dataUrl);
+      const text = await response.text();
+      
+      // 解析PLY文件中的点坐标
+      const points = this._parsePlyPoints(text);
+      console.log('解析到的校准轨迹点数量:', points.length);
+      
+      if (points.length === 0) {
+        console.warn('PLY文件中没有找到有效的点数据');
+        return;
+      }
+      
+      // 使用指定颜色或默认颜色
+      const color = options.color || 0xFF0000;
+      
+      // 创建按间隔连接的线段
+      this._createIntervalSegments(points, options.interval || 0.5, color);
+      
+      // 渲染场景
+        this.modelRenderer.render();
+      
+      console.log('校准轨迹显示成功');
+      return true;
+    } catch (error) {
+      console.error('显示校准轨迹失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 隐藏校准轨迹
+   */
+  hideCalibrationTrajectory() {
+    console.log('hideCalibrationTrajectory方法被调用');
+    
+    // 移除当前显示的校准轨迹线段
+    if (this.currentCalibrationTrajectory && this.currentCalibrationTrajectory.length > 0) {
+      for (const segment of this.currentCalibrationTrajectory) {
+        if (segment.parent) {
+          this.scene.remove(segment);
+          segment.geometry.dispose();
+          segment.material.dispose();
+        }
+      }
+      this.currentCalibrationTrajectory = null;
+    }
+    
+    // 渲染场景
+        this.modelRenderer.render();
+    console.log('校准轨迹已隐藏');
+    return true;
+  }
+  
+  /**
+   * 解析PLY文件中的点坐标
+   * @param {string} plyContent - PLY文件内容
+   * @returns {Array} 点坐标数组
+   */
+  _parsePlyPoints(plyContent) {
+    const points = [];
+    const lines = plyContent.trim().split('\n');
+    
+    // 找到end_header行之后的数据
+    let headerEndIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() === 'end_header') {
+        headerEndIndex = i + 1;
+        break;
+      }
+    }
+    
+    if (headerEndIndex === -1) {
+      console.error('PLY文件格式错误，未找到end_header');
+      return points;
+    }
+    
+    // 解析点数据
+    for (let i = headerEndIndex; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith('#')) continue;
+      
+      const parts = line.split(/\s+/);
+      if (parts.length >= 3) {
+        const x = parseFloat(parts[0]);
+        const y = parseFloat(parts[1]);
+        const z = parseFloat(parts[2]);
+        
+        if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+          points.push({ x, y, z });
+        }
+      }
+    }
+    
+    return points;
+  }
+  
+  /**
+   * 创建按间隔连接的线段
+   * @param {Array} points - 点坐标数组
+   * @param {number} interval - 连接间隔（秒）
+   * @param {number} color - 线段颜色
+   */
+  _createIntervalSegments(points, interval, color) {
+    console.log('创建按间隔连接的线段:', { pointCount: points.length, interval });
+    
+    // 计算间隔点数（假设点是按一定频率采集的，这里简化处理，直接按索引间隔）
+    // 这里假设每秒采集一定数量的点，简化为按固定索引间隔
+    const pointInterval = Math.max(1, Math.floor(points.length * interval));
+    
+    this.currentCalibrationTrajectory = [];
+    
+    // 创建线段材质
+    const material = new THREE.LineBasicMaterial({
+      color: color,
+      linewidth: 2
+    });
+    
+    // 按间隔连接点
+    for (let i = 0; i < points.length - 1; i += pointInterval) {
+      const endIndex = Math.min(i + pointInterval, points.length - 1);
+      
+      // 创建线段几何体
+      const geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array([
+        points[i].x, points[i].y, points[i].z,
+        points[endIndex].x, points[endIndex].y, points[endIndex].z
+      ]);
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      // 创建线段对象
+      const line = new THREE.Line(geometry, material);
+      this.scene.add(line);
+      this.currentCalibrationTrajectory.push(line);
+    }
+    
+    console.log('线段创建完成，共创建:', this.currentCalibrationTrajectory.length, '条线段');
+  }
+
+  /**
    * 获取当前模型的轨迹历史记录
    * @returns {Array} 轨迹数组
    */
@@ -996,6 +1153,10 @@ class PlyRenderer {
    */
   clearAllTrajectoryHistory() {
     this.trajectoryHistory.clearAllTrajectories(this.scene);
+    
+    // 同时清除校准轨迹
+    this.hideCalibrationTrajectory();
+    this.calibrationTrajectories.clear();
   }
 
   /**
