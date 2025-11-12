@@ -134,7 +134,7 @@ class PlyRenderer {
       // 清除该器官的现有数据
       this._clearOrganData(organName);
 
-      // 调用API获取PLY数据
+      // 调用API获取PLY数据，getOrganPlyModel函数现在已经封装了batchId参数
       const plyData = await getOrganPlyModel(organName);
       if (!plyData || !plyData.data) {
         throw new Error('获取PLY数据失败：返回数据无效');

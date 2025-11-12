@@ -660,8 +660,8 @@ const loadModelPoints = async () => {
       isDrawingMode.value = false;
     }
     
-    // 调用新的PlyRenderer方法
-    const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, getOrganPlyModel);
+    // 调用新的PlyRenderer方法，传递batchId参数
+    const success = await plyRenderer.value.loadAndRenderPlyPoints(organName, (orgName) => getOrganPlyModel(orgName, batchId));
     
     if (success) {
       hasPlyData.value = true;
