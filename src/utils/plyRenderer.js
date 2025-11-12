@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import PlyHistoryManager from './plyHistory';
 
 /**
  * PLY渲染器类，用于解析PLY文件并渲染点位和法向量
@@ -16,6 +17,9 @@ class PlyRenderer {
     // 延迟初始化，确保ModelRenderer已完全初始化
     this._initialized = false;
     this._initPromise = this._initialize();
+    
+    // 轨迹历史记录管理器
+    this.trajectoryHistory = new PlyHistoryManager();
   }
 
   /**
@@ -324,8 +328,16 @@ class PlyRenderer {
     }
 
     try {
+      // 设置当前模型，用于轨迹历史记录
+      this.trajectoryHistory.setCurrentModel(organName);
+      
       // 如果当前不在绘制模式，进入绘制模式
       if (!this.isDrawing) {
+        // 先清除当前显示的轨迹（如果有）
+        this.clearLine();
+        // 隐藏历史轨迹
+        this.trajectoryHistory.hideCurrentTrajectory(this.scene);
+        
         this.isDrawing = true;
         this.currentModel = organName;
         this._startDrawing();
@@ -873,6 +885,10 @@ class PlyRenderer {
       
       this.scene.add(this.lineObject);
       
+      // 将当前轨迹添加到历史记录
+      this.trajectoryHistory.setCurrentModel(this.currentModel);
+      this.trajectoryHistory.addTrajectory([...this.snappedTrajectoryPoints], this.scene);
+      
       // 可选：添加调试信息
       console.log(`轨迹创建成功，收集了${nearbyPoints.length}个靠近线段的点`);
       // 移除频繁的日志输出，减少性能开销
@@ -899,6 +915,10 @@ class PlyRenderer {
       this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
       
       this.scene.add(this.lineObject);
+      
+      // 将当前轨迹添加到历史记录
+      this.trajectoryHistory.setCurrentModel(this.currentModel);
+      this.trajectoryHistory.addTrajectory([...this.snappedTrajectoryPoints], this.scene);
       
       // 可选：添加调试信息
       console.log(`使用后备方案，收集了${nearbyPoints.length}个靠近线段的点`);
@@ -942,6 +962,43 @@ class PlyRenderer {
   }
 
   /**
+   * 获取当前模型的轨迹历史记录
+   * @returns {Array} 轨迹数组
+   */
+  getTrajectoryHistory() {
+    if (!this.currentModel) return [];
+    return this.trajectoryHistory.getTrajectories();
+  }
+
+  /**
+   * 显示指定的历史轨迹
+   * @param {string} trajectoryId - 轨迹ID
+   * @returns {boolean} 是否成功
+   */
+  showHistoryTrajectory(trajectoryId) {
+    // 先清除当前绘制的轨迹
+    this.clearLine();
+    // 显示历史轨迹
+    return this.trajectoryHistory.showTrajectory(trajectoryId, this.scene);
+  }
+
+  /**
+   * 删除指定的历史轨迹
+   * @param {string} trajectoryId - 轨迹ID
+   * @returns {boolean} 是否成功
+   */
+  deleteHistoryTrajectory(trajectoryId) {
+    return this.trajectoryHistory.deleteTrajectory(trajectoryId, this.scene);
+  }
+
+  /**
+   * 清除当前模型的所有历史轨迹
+   */
+  clearAllTrajectoryHistory() {
+    this.trajectoryHistory.clearAllTrajectories(this.scene);
+  }
+
+  /**
    * 清除指定器官的PLY数据
    * @private
    * @param {string} organName - 器官名称
@@ -979,6 +1036,9 @@ class PlyRenderer {
     
     // 清除轨迹，确保清除模型后轨迹也被清除
     this.clearLine();
+    
+    // 清除该器官的轨迹历史记录
+    this.trajectoryHistory.clearOrganTrajectories(organName, this.scene);
   }
 
   /**

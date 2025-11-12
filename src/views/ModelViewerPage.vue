@@ -165,64 +165,118 @@
                   <span class="detail-value">{{ selectedModelDetail.description }}</span>
                 </div>
                 
-                <!-- 颜色选择器 -->
-                <div class="color-selection-section">
-                  <h5>模型颜色</h5>
-                  
-                  <!-- 预设颜色选择 -->
-                  <div class="preset-colors">
-                    <div 
-                      v-for="(color, index) in presetColors" 
-                      :key="index"
-                      class="color-option"
-                      :class="{ 'selected': index === selectedColorIndex && !showCustomColor }"
-                      :style="{ backgroundColor: color.hex }"
-                      @click="selectPresetColor(index)"
-                      :title="color.name"
-                    ></div>
-                  </div>
-                  
-                  <!-- 自定义RGB颜色 -->
-                  <div class="custom-color-section">
-                    <div class="color-preview" :style="{ backgroundColor: rgbToHex(customRgb) }"></div>
-                    <div class="rgb-inputs">
-                      <div class="rgb-input-group">
-                        <label>R</label>
-                        <input 
-                          type="number" 
-                          :value="customRgb.r"
-                          @input="handleRgbChange('r', $event.target.value)"
-                          min="0" 
-                          max="255"
-                          placeholder="R"
-                        >
+                <!-- 轨迹历史记录 -->
+                  <div class="trajectory-history-section">
+                    <div class="section-header">
+                      <h5>轨迹历史记录</h5>
+                      <button 
+                        class="toggle-history-btn" 
+                        @click="toggleTrajectoryHistory"
+                        :class="{ active: showTrajectoryHistory }"
+                      >
+                        {{ showTrajectoryHistory ? '隐藏' : '显示' }}
+                      </button>
+                    </div>
+                    
+                    <div v-if="showTrajectoryHistory" class="trajectory-list">
+                      <div v-if="trajectoryHistory.length === 0" class="no-trajectories">
+                        暂无轨迹历史记录
                       </div>
-                      <div class="rgb-input-group">
-                        <label>G</label>
-                        <input 
-                          type="number" 
-                          :value="customRgb.g"
-                          @input="handleRgbChange('g', $event.target.value)"
-                          min="0" 
-                          max="255"
-                          placeholder="G"
-                        >
+                      <div 
+                        v-for="trajectory in trajectoryHistory" 
+                        :key="trajectory.id"
+                        class="trajectory-item"
+                        :class="{ active: currentDisplayedTrajectoryId === trajectory.id }"
+                      >
+                        <div class="trajectory-info">
+                          <div class="trajectory-color" :style="{ backgroundColor: '#' + trajectory.color.toString(16).padStart(6, '0') }"></div>
+                          <span class="trajectory-name">{{ trajectory.name }}</span>
+                        </div>
+                        <div class="trajectory-actions">
+                          <button 
+                            class="action-btn show-btn" 
+                            @click="showHistoryTrajectory(trajectory.id)"
+                            :disabled="currentDisplayedTrajectoryId === trajectory.id"
+                          >
+                            显示
+                          </button>
+                          <button 
+                            class="action-btn hide-btn" 
+                            @click="hideHistoryTrajectory()"
+                            :disabled="currentDisplayedTrajectoryId !== trajectory.id"
+                          >
+                            取消选中
+                          </button>
+                          <button 
+                            class="action-btn delete-btn" 
+                            @click="deleteHistoryTrajectory(trajectory.id)"
+                            :disabled="isDrawingMode"
+                          >
+                            删除
+                          </button>
+                        </div>
                       </div>
-                      <div class="rgb-input-group">
-                        <label>B</label>
-                        <input 
-                          type="number" 
-                          :value="customRgb.b"
-                          @input="handleRgbChange('b', $event.target.value)"
-                          min="0" 
-                          max="255"
-                          placeholder="B"
-                        >
-                      </div>
-                      <button class="apply-color-btn" @click="applyCustomColor">应用</button>
                     </div>
                   </div>
-                </div>
+                  
+                  <!-- 颜色选择器 -->
+                  <div class="color-selection-section">
+                    <h5>模型颜色</h5>
+                    
+                    <!-- 预设颜色选择 -->
+                    <div class="preset-colors">
+                      <div 
+                        v-for="(color, index) in presetColors" 
+                        :key="index"
+                        class="color-option"
+                        :class="{ 'selected': index === selectedColorIndex && !showCustomColor }"
+                        :style="{ backgroundColor: color.hex }"
+                        @click="selectPresetColor(index)"
+                        :title="color.name"
+                      ></div>
+                    </div>
+                    
+                    <!-- 自定义RGB颜色 -->
+                    <div class="custom-color-section">
+                      <div class="color-preview" :style="{ backgroundColor: rgbToHex(customRgb) }"></div>
+                      <div class="rgb-inputs">
+                        <div class="rgb-input-group">
+                          <label>R</label>
+                          <input 
+                            type="number" 
+                            :value="customRgb.r"
+                            @input="handleRgbChange('r', $event.target.value)"
+                            min="0" 
+                            max="255"
+                            placeholder="R"
+                          >
+                        </div>
+                        <div class="rgb-input-group">
+                          <label>G</label>
+                          <input 
+                            type="number" 
+                            :value="customRgb.g"
+                            @input="handleRgbChange('g', $event.target.value)"
+                            min="0" 
+                            max="255"
+                            placeholder="G"
+                          >
+                        </div>
+                        <div class="rgb-input-group">
+                          <label>B</label>
+                          <input 
+                            type="number" 
+                            :value="customRgb.b"
+                            @input="handleRgbChange('b', $event.target.value)"
+                            min="0" 
+                            max="255"
+                            placeholder="B"
+                          >
+                        </div>
+                        <button class="apply-color-btn" @click="applyCustomColor">应用</button>
+                      </div>
+                    </div>
+                  </div>
               </div>
             </div>
           </div>
@@ -320,6 +374,11 @@ const isDrawingMode = ref(false); // 线段绘制模式状态
 const hasSelectedPoints = ref(false); // 是否已选择点位
 const normalsVisible = ref(false); // 法向量是否可见
 
+// 轨迹历史记录状态
+const showTrajectoryHistory = ref(false);
+const trajectoryHistory = ref([]);
+const currentDisplayedTrajectoryId = ref(null);
+
 // 模型颜色控制
 const selectedColorIndex = ref(0);
 const customRgb = ref({ r: 204, g: 204, b: 255 });
@@ -359,6 +418,11 @@ watch(selectedModelKey, async (newKey) => {
         hasPlyData.value = false;
       }
     }
+    
+    // 关闭轨迹历史面板
+    showTrajectoryHistory.value = false;
+    // 重置当前显示的轨迹ID
+    currentDisplayedTrajectoryId.value = null;
   } else {
     hasPlyData.value = false;
   }
@@ -600,6 +664,9 @@ const clearAllModels = () => {
       hasPlyData.value = false;
       hasSelectedPoints.value = false;
       normalsVisible.value = false;
+      trajectoryHistory.value = [];
+      currentDisplayedTrajectoryId.value = null;
+      showTrajectoryHistory.value = false;
     }
   }
   
@@ -707,9 +774,13 @@ const toggleDrawingMode = () => {
         plyRenderer.value.enableSnapToClosestPoint((point) => {
           console.log('吸附到最近点:', point);
         });
+        // 重置当前显示的轨迹ID
+        currentDisplayedTrajectoryId.value = null;
       } else {
         console.log('退出绘制模式：模型可自由旋转缩放');
         plyRenderer.value.disableSnapToClosestPoint();
+        // 绘制结束后重新加载轨迹历史
+        loadTrajectoryHistory();
       }
 
       // 检查是否已有选择的点位
@@ -784,6 +855,8 @@ const switchToDetailView = (organKey) => {
   });
   console.log(`查看模型详情: ${organList[organKey]}`);
 };
+
+// 导出所有函数和状态
 
 // 切换模型显示/隐藏
 const toggleVisibility = () => {
@@ -881,10 +954,93 @@ const switchToModel = (organKey, toDetail = true) => {
   if (toDetail) {
     // 切换到详情视图
     switchToDetailView(organKey);
+    // 加载该模型的轨迹历史
+    loadTrajectoryHistory();
   } else {
     // 聚焦到特定模型（3D模型在下方固定显示）
     console.log(`聚焦到模型: ${organList[organKey]}`);
     // 可以在这里添加聚焦到特定模型的逻辑
+  }
+};
+
+// 加载轨迹历史
+const loadTrajectoryHistory = () => {
+  if (!plyRenderer.value || !selectedModelKey.value) return;
+  
+  try {
+    if (typeof plyRenderer.value.getTrajectoryHistory === 'function') {
+      trajectoryHistory.value = plyRenderer.value.getTrajectoryHistory();
+      console.log('加载轨迹历史成功:', trajectoryHistory.value);
+    }
+  } catch (error) {
+    console.error('加载轨迹历史失败:', error);
+    trajectoryHistory.value = [];
+  }
+};
+
+// 切换轨迹历史面板显示
+const toggleTrajectoryHistory = () => {
+  showTrajectoryHistory.value = !showTrajectoryHistory.value;
+  // 如果打开面板，重新加载轨迹历史
+  if (showTrajectoryHistory.value) {
+    loadTrajectoryHistory();
+  }
+};
+
+// 显示历史轨迹
+const showHistoryTrajectory = (trajectoryId) => {
+  if (!plyRenderer.value || isDrawingMode.value) return;
+  
+  try {
+    if (typeof plyRenderer.value.showHistoryTrajectory === 'function') {
+      const success = plyRenderer.value.showHistoryTrajectory(trajectoryId);
+      if (success) {
+        currentDisplayedTrajectoryId.value = trajectoryId;
+        console.log('成功显示历史轨迹:', trajectoryId);
+      }
+    }
+  } catch (error) {
+    console.error('显示历史轨迹失败:', error);
+  }
+};
+
+// 隐藏当前显示的历史轨迹
+const hideHistoryTrajectory = () => {
+  if (!plyRenderer.value || !currentDisplayedTrajectoryId.value || isDrawingMode.value) return;
+  
+  try {
+    if (typeof plyRenderer.value.showHistoryTrajectory === 'function') {
+      // 传入null来隐藏当前显示的轨迹
+      const success = plyRenderer.value.showHistoryTrajectory(null);
+      if (success) {
+        console.log('成功隐藏历史轨迹:', currentDisplayedTrajectoryId.value);
+        currentDisplayedTrajectoryId.value = null;
+      }
+    }
+  } catch (error) {
+    console.error('隐藏历史轨迹失败:', error);
+  }
+};
+
+// 删除历史轨迹
+const deleteHistoryTrajectory = (trajectoryId) => {
+  if (!plyRenderer.value || isDrawingMode.value) return;
+  
+  try {
+    if (typeof plyRenderer.value.deleteHistoryTrajectory === 'function') {
+      const success = plyRenderer.value.deleteHistoryTrajectory(trajectoryId);
+      if (success) {
+        // 如果删除的是当前显示的轨迹，更新状态
+        if (trajectoryId === currentDisplayedTrajectoryId.value) {
+          currentDisplayedTrajectoryId.value = null;
+        }
+        // 重新加载轨迹历史
+        loadTrajectoryHistory();
+        console.log('成功删除历史轨迹:', trajectoryId);
+      }
+    }
+  } catch (error) {
+    console.error('删除历史轨迹失败:', error);
   }
 };
 </script>

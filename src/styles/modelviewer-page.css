@@ -532,17 +532,172 @@ detail-row {
   margin-bottom: 8px;
 }
 
+/* 轨迹历史记录样式 */
+.trajectory-history-section {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.trajectory-history-section .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.trajectory-history-section h5 {
+  margin-top: 0;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.toggle-history-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.toggle-history-btn:hover {
+  background-color: #5a6268;
+}
+
+.toggle-history-btn.active {
+  background-color: #28a745;
+}
+
+.trajectory-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.no-trajectories {
+  text-align: center;
+  padding: 20px;
+  color: #6c757d;
+  font-size: 13px;
+}
+
+.trajectory-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  margin-bottom: 8px;
+  background-color: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.trajectory-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.trajectory-item.active {
+  border-color: #28a745;
+  background-color: #f8fff8;
+}
+
+.trajectory-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trajectory-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+.trajectory-name {
+  font-size: 13px;
+  color: #333;
+}
+
+.trajectory-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.show-btn {
+  background-color: #007bff;
+  color: white;
+}
+
+.show-btn:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.show-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.hide-btn {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.hide-btn:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
+.hide-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.delete-btn {
+  background-color: #dc3545;
+  color: white;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background-color: #c82333;
+}
+
+.delete-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
 /* 颜色选择器样式 */
 .color-selection-section {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 2px solid #e9ecef;
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
 }
 
 .color-selection-section h5 {
-  margin: 0 0 15px 0;
-  color: #2c3e50;
-  font-size: 1rem;
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
 }
 
 /* 预设颜色选择 */
@@ -550,7 +705,7 @@ detail-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .color-option {
