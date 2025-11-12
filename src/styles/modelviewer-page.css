@@ -56,9 +56,9 @@ header {
   flex-direction: row;
   padding: 20px;
   gap: 20px;
-  min-height: 0;
+  min-height: calc(100vh - 140px);
   width: 100vw;
-  height: calc(100vh - 140px);
+  height: auto;
   flex: 1;
   margin: 0;
   box-sizing: border-box;
@@ -66,6 +66,7 @@ header {
   max-width: 100vw;
   left: 0;
   right: 0;
+  overflow-y: visible;
 }
 
 /* 通过order属性调整元素顺序，使模型查看区域在左侧 */
@@ -90,14 +91,15 @@ header {
     margin: 0;
     box-sizing: border-box;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     max-height: none;
-    height: 100%;
+    height: auto;
+    min-height: calc(100vh - 180px);
   }
   
   .organ-selection-content {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: visible;
     padding-right: 5px;
   }
   
@@ -122,27 +124,29 @@ header {
 
 /* 模型信息视图样式 */
 .model-info-view {
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .model-info-view .model-info-content {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: visible;
   padding-right: 5px;
 }
 
 /* 模型详情视图样式 */
 .model-detail-view {
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .model-detail-view .model-info-content {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: visible;
   padding-right: 5px;
 }
 
@@ -683,6 +687,28 @@ detail-row {
   cursor: not-allowed;
 }
 
+/* 重置颜色按钮样式 */
+.reset-color-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  background-color: white;
+  color: #6c757d;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.reset-color-btn:hover {
+  background-color: #e9ecef;
+  color: #495057;
+  border-color: #adb5bd;
+}
+
 /* 颜色选择器样式 */
 .color-selection-section {
   margin-top: 20px;
@@ -694,7 +720,7 @@ detail-row {
 
 .color-selection-section h5 {
   margin-top: 0;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   font-size: 14px;
   font-weight: 600;
   color: #333;

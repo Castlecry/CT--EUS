@@ -692,8 +692,41 @@ class ModelRenderer {
     
     return visibility;
   }
-  
-  // 重置控制器视角
+    
+    // 重置模型颜色到初始状态
+    resetModelColor(modelName) {
+      const model = this.models.get(modelName);
+      if (!model) {
+        console.error(`模型${modelName}不存在`);
+        return false;
+      }
+      
+      let success = false;
+      
+      model.traverse((child) => {
+        if (child.isMesh) {
+          try {
+            // 如果有保存的原始颜色，则恢复
+            if (child.material._originalColor) {
+              child.material.color.copy(child.material._originalColor);
+              child.material.needsUpdate = true;
+              success = true;
+            } else {
+              console.warn(`模型${modelName}的网格没有保存的原始颜色`);
+            }
+          } catch (error) {
+            console.error(`重置模型${modelName}的网格颜色失败:`, error);
+          }
+        }
+      });
+      
+      if (success) {
+        console.log(`模型${modelName}颜色已重置为原始状态`);
+      }
+      return success;
+    }
+    
+    // 重置控制器视角
   resetView() {
     if (this.camera && this.initialCameraPosition) {
       this.camera.position.copy(this.initialCameraPosition);

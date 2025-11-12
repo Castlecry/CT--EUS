@@ -221,7 +221,16 @@
                   
                   <!-- 颜色选择器 -->
                   <div class="color-selection-section">
-                    <h5>模型颜色</h5>
+                    <div class="section-header">
+                      <h5>模型颜色</h5>
+                      <button 
+                        class="reset-color-btn" 
+                        @click="resetToOriginalColor"
+                        title="重置为原始颜色"
+                      >
+                        ↻
+                      </button>
+                    </div>
                     
                     <!-- 预设颜色选择 -->
                     <div class="preset-colors">
@@ -321,7 +330,8 @@ import {
   applyModelColor,
   toggleModelVisibility,
   getModelColor,
-  getModelVisibility
+  getModelVisibility,
+  resetModelColor
 } from '../utils/modeldetails.js';
 
 // 器官名称映射表
@@ -920,6 +930,29 @@ const handleRgbChange = (channel, value) => {
   showCustomColor.value = true;
 };
 
+// 重置模型颜色到原始状态
+const resetToOriginalColor = () => {
+  if (!selectedModelKey.value || !renderer.value || !rendererReady.value) return;
+  
+  const modelName = organList[selectedModelKey.value];
+  const success = resetModelColor(renderer.value, modelName);
+  
+  if (success) {
+    // 获取重置后的颜色并更新UI
+    const color = getModelColor(renderer.value, modelName);
+    if (color && isValidRgb(color)) {
+      customRgb.value = color;
+      // 查找是否匹配预设颜色
+      const hex = rgbToHex(color);
+      const matchingIndex = presetColors.findIndex(c => c.hex === hex);
+      selectedColorIndex.value = matchingIndex !== -1 ? matchingIndex : 0;
+      showCustomColor.value = matchingIndex === -1;
+    }
+  } else {
+    alert('无法重置模型颜色，请重试');
+  }
+};
+
 // 返回模型列表视图
 const returnToListView = () => {
   // 清除选中的模型详情
@@ -1012,13 +1045,20 @@ const hideHistoryTrajectory = () => {
     if (typeof plyRenderer.value.showHistoryTrajectory === 'function') {
       // 传入null来隐藏当前显示的轨迹
       const success = plyRenderer.value.showHistoryTrajectory(null);
+      // 无论成功与否，都重置当前显示的轨迹ID，确保UI状态正确更新
+      const trajectoryIdToHide = currentDisplayedTrajectoryId.value;
+      currentDisplayedTrajectoryId.value = null;
+      
       if (success) {
-        console.log('成功隐藏历史轨迹:', currentDisplayedTrajectoryId.value);
-        currentDisplayedTrajectoryId.value = null;
+        console.log('成功隐藏历史轨迹:', trajectoryIdToHide);
+      } else {
+        console.warn('隐藏轨迹失败，但仍重置状态以确保UI正常工作:', trajectoryIdToHide);
       }
     }
   } catch (error) {
     console.error('隐藏历史轨迹失败:', error);
+    // 即使发生错误，也要重置状态以确保UI正常工作
+    currentDisplayedTrajectoryId.value = null;
   }
 };
 

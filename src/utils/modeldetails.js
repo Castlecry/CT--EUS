@@ -70,6 +70,27 @@ export const isValidRgb = (rgb) => {
 };
 
 /**
+ * 重置模型颜色到初始状态
+ * @param {Object} renderer - 模型渲染器实例
+ * @param {string} modelName - 模型名称
+ * @returns {boolean} 是否成功
+ */
+export const resetModelColor = (renderer, modelName) => {
+  if (!renderer || !renderer.resetModelColor) {
+    console.error('无效的渲染器或渲染器不支持重置颜色');
+    return false;
+  }
+  
+  try {
+    renderer.resetModelColor(modelName);
+    return true;
+  } catch (error) {
+    console.error('重置模型颜色失败:', error);
+    return false;
+  }
+};
+
+/**
  * 应用模型颜色
  * @param {Object} renderer - 模型渲染器实例
  * @param {string} modelName - 模型名称
