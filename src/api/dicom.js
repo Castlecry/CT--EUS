@@ -183,9 +183,48 @@ export const getOrganPlyModel = async (organName, batchId) => {
   }
 };
 
+/**
+ * 上传轨迹点云为PLY文件
+ * @param {string} fileName - 文件名（不包含后缀）
+ * @param {string} content - PLY文件内容
+ * @param {string|number} batchId - 批次ID
+ * @returns {Promise} 返回上传结果
+ */
+export const uploadTrajectoryPly = async (fileName, content, batchId) => {
+  try {
+    // 参数校验
+    if (!fileName || !content || !batchId) {
+      throw new Error("参数错误：文件名、内容和批次ID不能为空");
+    }
+
+    // 创建Blob对象
+    const blob = new Blob([content], { type: 'text/plain' });
+    
+    // 创建FormData对象
+    const formData = new FormData();
+    formData.append('file', blob, `${fileName}.ply`);
+    formData.append('batchId', batchId.toString());
+    formData.append('fileName', fileName);
+    
+    // 发送POST请求
+    const response = await apiClient.post('/trajectory/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    console.log('上传轨迹点云成功:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('上传轨迹点云失败:', error);
+    throw error;
+  }
+};
+
 export default {
   uploadDicomFiles,
   processDicomFiles,
   getOrganModel,
-  getOrganPlyModel
+  getOrganPlyModel,
+  uploadTrajectoryPly
 };

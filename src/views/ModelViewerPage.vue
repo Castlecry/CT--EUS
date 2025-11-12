@@ -208,12 +208,46 @@
                             取消选中
                           </button>
                           <button 
+                            class="action-btn upload-btn" 
+                            @click="uploadTrajectory(trajectory.id)"
+                            :disabled="isDrawingMode"
+                          >
+                            上传
+                          </button>
+                          <button 
                             class="action-btn delete-btn" 
                             @click="deleteHistoryTrajectory(trajectory.id)"
                             :disabled="isDrawingMode"
                           >
                             删除
                           </button>
+                        </div>
+                        <!-- 轨迹点坐标信息 -->
+                        <div class="trajectory-points-info">
+                          <div class="points-header">
+                            <span>点坐标 (共{{ trajectory.points?.length || 0 }}个点)</span>
+                            <button 
+                              class="toggle-points-btn" 
+                              @click="togglePointsView(trajectory.id)"
+                            >
+                              {{ isPointsViewOpen(trajectory.id) ? '收起' : '展开' }}
+                            </button>
+                          </div>
+                          <div 
+                            v-if="isPointsViewOpen(trajectory.id)" 
+                            class="points-list"
+                          >
+                            <div 
+                              v-for="(point, index) in trajectory.points" 
+                              :key="index"
+                              class="point-item"
+                            >
+                              <span class="point-index">点{{ index + 1 }}:</span>
+                              <span class="point-coords">
+                                ({{ point.x.toFixed(2) }}, {{ point.y.toFixed(2) }}, {{ point.z.toFixed(2) }})
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -319,7 +353,7 @@
 import '../styles/modelviewer-page.css';
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getOrganModel, getOrganPlyModel } from '../api/dicom.js';
+import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly } from '../api/dicom.js';
 import ModelRenderer from '../utils/modelRenderer.js';
 import PlyRenderer from '../utils/plyRenderer.js';
 import {
@@ -388,6 +422,8 @@ const normalsVisible = ref(false); // 法向量是否可见
 const showTrajectoryHistory = ref(false);
 const trajectoryHistory = ref([]);
 const currentDisplayedTrajectoryId = ref(null);
+// 跟踪展开的点坐标视图
+const expandedPointsViews = ref(new Set());
 
 // 模型颜色控制
 const selectedColorIndex = ref(0);
@@ -1062,6 +1098,84 @@ const hideHistoryTrajectory = () => {
   }
 };
 
+// 切换点坐标视图显示状态
+const togglePointsView = (trajectoryId) => {
+  if (expandedPointsViews.value.has(trajectoryId)) {
+    expandedPointsViews.value.delete(trajectoryId);
+  } else {
+    expandedPointsViews.value.add(trajectoryId);
+  }
+};
+
+// 检查点坐标视图是否展开
+const isPointsViewOpen = (trajectoryId) => {
+  return expandedPointsViews.value.has(trajectoryId);
+};
+
+// 生成PLY文件内容
+const generatePlyContent = (points) => {
+  // 假设点已经包含法向量信息，如果没有则使用默认法向量
+  const vertexCount = points.length;
+  let plyContent = `ply
+format ascii 1.0
+element vertex ${vertexCount}
+comment vertices
+property float x
+property float y
+property float z
+property float nx
+property float ny
+property float nz
+end_header\n`;
+  
+  // 为每个点添加坐标和法向量（如果没有法向量则使用默认值）
+  points.forEach(point => {
+    // 如果点有法向量信息，使用它；否则使用默认值
+    const nx = point.normal?.x || 0.0;
+    const ny = point.normal?.y || 0.0;
+    const nz = point.normal?.z || 1.0;
+    
+    plyContent += `${point.x} ${point.y} ${point.z} ${nx} ${ny} ${nz}\n`;
+  });
+  
+  return plyContent;
+};
+
+// 上传轨迹点云
+const uploadTrajectory = async (trajectoryId) => {
+  if (!plyRenderer.value || isDrawingMode.value) return;
+  
+  try {
+    // 获取轨迹数据
+    const trajectory = trajectoryHistory.value.find(t => t.id === trajectoryId);
+    if (!trajectory || !trajectory.points || trajectory.points.length === 0) {
+      console.error('轨迹数据无效');
+      return;
+    }
+    
+    // 生成PLY文件内容
+    const plyContent = generatePlyContent(trajectory.points);
+    
+    // 生成文件名（使用轨迹ID和时间戳）
+    const fileName = `trajectory_${trajectoryId}_${Date.now()}`;
+    
+    // 获取当前的batchId（假设从当前模型信息中获取）
+    const batchId = currentModelInfo.value?.batchId || Date.now();
+    
+    console.log('准备上传轨迹点云:', { fileName, pointCount: trajectory.points.length });
+    
+    // 调用API上传
+    const result = await uploadTrajectoryPly(fileName, plyContent, batchId);
+    
+    // 显示成功消息
+    alert('轨迹点云上传成功！');
+    console.log('轨迹点云上传成功:', result);
+  } catch (error) {
+    console.error('上传轨迹点云失败:', error);
+    alert('上传失败：' + (error.message || '未知错误'));
+  }
+};
+
 // 删除历史轨迹
 const deleteHistoryTrajectory = (trajectoryId) => {
   if (!plyRenderer.value || isDrawingMode.value) return;
@@ -1074,6 +1188,8 @@ const deleteHistoryTrajectory = (trajectoryId) => {
         if (trajectoryId === currentDisplayedTrajectoryId.value) {
           currentDisplayedTrajectoryId.value = null;
         }
+        // 移除展开的视图
+        expandedPointsViews.value.delete(trajectoryId);
         // 重新加载轨迹历史
         loadTrajectoryHistory();
         console.log('成功删除历史轨迹:', trajectoryId);

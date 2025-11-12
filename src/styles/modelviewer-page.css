@@ -673,6 +673,16 @@ detail-row {
   cursor: not-allowed;
 }
 
+.upload-btn {
+  background-color: #28a745;
+  color: white;
+  margin: 0 4px;
+}
+
+.upload-btn:hover:not(:disabled) {
+  background-color: #218838;
+}
+
 .delete-btn {
   background-color: #dc3545;
   color: white;
@@ -680,6 +690,68 @@ detail-row {
 
 .delete-btn:hover:not(:disabled) {
   background-color: #c82333;
+}
+
+/* 轨迹点坐标信息样式 */
+.trajectory-points-info {
+  margin-top: 12px;
+  padding: 10px;
+  background-color: #fff;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.points-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.toggle-points-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toggle-points-btn:hover {
+  background-color: #5a6268;
+}
+
+.points-list {
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+
+.point-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.point-item:last-child {
+  border-bottom: none;
+}
+
+.point-index {
+  font-weight: 500;
+  color: #666;
+  min-width: 40px;
+}
+
+.point-coords {
+  color: #333;
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
 }
 
 .delete-btn:disabled {
