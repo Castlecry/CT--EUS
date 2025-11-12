@@ -1156,16 +1156,15 @@ const uploadTrajectory = async (trajectoryId) => {
     // 生成PLY文件内容
     const plyContent = generatePlyContent(trajectory.points);
     
-    // 生成文件名（使用轨迹ID和时间戳）
-    const fileName = `trajectory_${trajectoryId}_${Date.now()}`;
+    // 创建Blob对象
+    const blob = new Blob([plyContent], { type: 'text/plain' });
     
-    // 获取当前的batchId（假设从当前模型信息中获取）
-    const batchId = currentModelInfo.value?.batchId || Date.now();
+    // 使用页面已有的batchId
     
-    console.log('准备上传轨迹点云:', { fileName, pointCount: trajectory.points.length });
+    console.log('准备上传轨迹点云:', { pointCount: trajectory.points.length });
     
-    // 调用API上传
-    const result = await uploadTrajectoryPly(fileName, plyContent, batchId);
+    // 调用API上传，使用blob和batchId参数
+    const result = await uploadTrajectoryPly(blob, batchId);
     
     // 显示成功消息
     alert('轨迹点云上传成功！');

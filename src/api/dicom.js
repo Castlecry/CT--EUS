@@ -190,33 +190,26 @@ export const getOrganPlyModel = async (organName, batchId) => {
  * @param {string|number} batchId - 批次ID
  * @returns {Promise} 返回上传结果
  */
-export const uploadTrajectoryPly = async (fileName, content, batchId) => {
+export const uploadTrajectoryPly = async (plyBlob, batchId) => {
+  if (!plyBlob || !batchId) {
+    console.error('No PLY file or batchId provided');
+    return Promise.reject(new Error('No PLY file or batchId provided'));
+  }
+  
   try {
-    // 参数校验
-    if (!fileName || !content || !batchId) {
-      throw new Error("参数错误：文件名、内容和批次ID不能为空");
-    }
-
-    // 创建Blob对象
-    const blob = new Blob([content], { type: 'text/plain' });
-    
-    // 创建FormData对象
     const formData = new FormData();
-    formData.append('file', blob, `${fileName}.ply`);
-    formData.append('batchId', batchId.toString());
-    formData.append('fileName', fileName);
+    formData.append('plyFile', plyBlob);
+    formData.append('batchId', batchId);
     
-    // 发送POST请求
-    const response = await apiClient.post('/trajectory/upload', formData, {
+    const response = await axios.post('/eus/generate-video', formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+        'Content-Type': 'multipart/form-data'
+      }
     });
     
-    console.log('上传轨迹点云成功:', response.data);
     return response.data;
   } catch (error) {
-    console.error('上传轨迹点云失败:', error);
+    console.error('Error uploading trajectory PLY file:', error);
     throw error;
   }
 };
