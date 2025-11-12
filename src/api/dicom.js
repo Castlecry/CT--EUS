@@ -121,29 +121,38 @@ export const getOrganModel = async (batchId, baseName) => {
 /**
  * 获取指定器官的PLY模型
  * @param {string} organName - 器官的英文名字
+ * @param {string|number} batchId - 上传时的批次ID
  * @returns {Promise} 返回模型数据（包含可直接使用的URL）
  */
-export const getOrganPlyModel = async (organName) => {
-  console.log('getOrganPlyModel函数开始执行，参数organName:', organName);
+export const getOrganPlyModel = async (organName, batchId) => {
+  console.log('getOrganPlyModel函数开始执行，参数organName:', organName, 'batchId:', batchId);
   try {
     // 参数校验
     if (!organName) {
       console.error('getOrganPlyModel: 参数错误 - organName为空');
       throw new Error("参数错误：器官英文名称不能为空");
     }
+    
+    if (!batchId) {
+      console.error('getOrganPlyModel: 参数错误 - batchId为空');
+      throw new Error("参数错误：批次ID不能为空");
+    }
 
-    // 确保organName是字符串类型
+    // 确保参数是字符串类型
     const organNameStr = String(organName).trim();
-    console.log('getOrganPlyModel: 处理后的organName:', organNameStr);
+    const batchIdStr = String(batchId).trim();
+    
+    console.log('getOrganPlyModel: 处理后的参数 - organName:', organNameStr, 'batchId:', batchIdStr);
 
     // 构造完整URL用于调试
-    const url = `${apiClient.defaults.baseURL}/organ/ply?organName=${encodeURIComponent(organNameStr)}`;
+    const url = `${apiClient.defaults.baseURL}/organ/ply?organName=${encodeURIComponent(organNameStr)}&batchId=${encodeURIComponent(batchIdStr)}`;
     console.log('getOrganPlyModel 请求URL:', url);
 
     console.log('getOrganPlyModel: 准备发送请求');
     const response = await apiClient.get('/organ/ply', {
       params: {
-        organName: organNameStr  // 严格按照接口文档使用organName参数
+        organName: organNameStr,  // 严格按照接口文档使用organName参数
+        batchId: batchIdStr       // 添加batchId参数
       },
       responseType: 'blob'
     });
@@ -166,7 +175,7 @@ export const getOrganPlyModel = async (organName) => {
     
     return result;
   } catch (error) {
-    console.error(`获取PLY模型失败（器官名称: ${organName}）:`, error);
+    console.error(`获取PLY模型失败（器官名称: ${organName}, batchId: ${batchId}）:`, error);
     if (error.response) {
       console.error('服务器响应:', error.response);
     }
