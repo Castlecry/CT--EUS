@@ -184,30 +184,129 @@ export const getOrganPlyModel = async (organName, batchId) => {
 };
 
 /**
- * 上传轨迹点云为PLY文件
- * @param {string} fileName - 文件名（不包含后缀）
- * @param {string} content - PLY文件内容
+ * 上传轨迹点云为PLY文件并处理后端分批返回的PLY文件流
+ * @param {Blob} plyBlob - PLY文件Blob对象
  * @param {string|number} batchId - 批次ID
- * @returns {Promise} 返回上传结果
+ * @param {Function} onPlyReceived - 处理每个接收到的PLY文件的回调函数
+ * @returns {Promise} 返回处理结果
  */
-export const uploadTrajectoryPly = async (plyBlob, batchId) => {
+export const uploadTrajectoryPly = async (plyBlob, batchId, onPlyReceived) => {
   if (!plyBlob || !batchId) {
     console.error('No PLY file or batchId provided');
     return Promise.reject(new Error('No PLY file or batchId provided'));
   }
   
   try {
-    const formData = new FormData();
-    formData.append('plyFile', plyBlob);
-    formData.append('batchId', batchId);
-    
-    const response = await axios.post('/eus/generate-video', formData, {
+    // 设置更长的超时时间，确保能接收所有PLY文件
+    const response = await apiClient.post('/eus/generate-video', {
+      trajectory: plyBlob,
+      batch_id: batchId
+    }, {
       headers: {
         'Content-Type': 'multipart/form-data'
-      }
+      },
+      responseType: 'stream',
+      timeout: 600000 // 10分钟超时，确保有足够时间接收所有文件
     });
     
-    return response.data;
+    // 创建一个Promise来处理流式响应
+    return new Promise((resolve, reject) => {
+      const reader = response.data.getReader();
+      const buffer = [];
+      let currentFile = null;
+      let fileCount = 0;
+      
+      // 超时处理
+      const timeoutId = setTimeout(() => {
+        reject(new Error('接收PLY文件超时，请检查网络连接或后端服务'));
+      }, 600000); // 10分钟超时
+      
+      reader.read().then(function processChunk({ done, value }) {
+        // 清除超时定时器
+        clearTimeout(timeoutId);
+        
+        if (done) {
+          // 处理最后一个可能未处理的文件
+          if (buffer.length > 0) {
+            processCurrentFile();
+          }
+          console.log(`所有PLY文件接收完成，共${fileCount}个文件`);
+          resolve({ status: 'completed', message: '所有PLY文件处理完成', fileCount: fileCount });
+          return;
+        }
+        
+        // 添加新数据到缓冲区
+        buffer.push(value);
+        
+        // 尝试将缓冲区内容转换为字符串以检查是否包含完整的PLY文件
+        const combinedBuffer = new Uint8Array(buffer.reduce((acc, val) => acc + val.byteLength, 0));
+        let offset = 0;
+        for (const chunk of buffer) {
+          combinedBuffer.set(new Uint8Array(chunk), offset);
+          offset += chunk.byteLength;
+        }
+        
+        const bufferString = String.fromCharCode.apply(null, combinedBuffer);
+        const plyHeaderIndex = bufferString.indexOf('ply');
+        
+        // 如果找到PLY文件头，并且不是在缓冲区的开始位置，说明前面可能有完整的PLY文件
+        if (plyHeaderIndex > 0) {
+          // 提取当前完整的PLY文件数据
+          const completeFileData = combinedBuffer.slice(0, plyHeaderIndex);
+          const remainingData = combinedBuffer.slice(plyHeaderIndex);
+          
+          // 处理完整的PLY文件
+          processPlyData(completeFileData);
+          
+          // 更新缓冲区，只保留剩余的数据
+          buffer.length = 0;
+          buffer.push(remainingData.buffer);
+        }
+        
+        // 继续读取下一个数据块，设置适当的延迟确保不占用过多资源
+        setTimeout(() => {
+          reader.read().then(processChunk).catch(error => {
+            clearTimeout(timeoutId);
+            reject(error);
+          });
+        }, 50); // 短暂延迟，避免CPU占用过高
+      }).catch(error => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+      
+      // 处理完整的PLY文件数据
+      function processPlyData(plyData) {
+        const plyBlob = new Blob([plyData], { type: 'application/octet-stream' });
+        parsePlyFile(plyBlob).then(parsedData => {
+          // 确保有5个点数据
+          if (parsedData.points && parsedData.points.length >= 5) {
+            const trajectoryData = {
+              targetPoint: parsedData.points[0], // 第一个点作为目标点
+              facePoints: parsedData.points.slice(1, 5) // 后四个点用于形成面
+            };
+            
+            fileCount++;
+            console.log(`处理第${fileCount}个PLY文件，包含${parsedData.points.length}个点`);
+            
+            // 调用回调函数处理解析后的数据
+            if (typeof onPlyReceived === 'function') {
+              onPlyReceived(trajectoryData);
+            }
+          }
+        }).catch(error => {
+          console.error('解析PLY文件失败:', error);
+          // 解析失败不中断整个流程，继续处理下一个文件
+        });
+      }
+      
+      // 处理当前缓冲区中的文件
+      function processCurrentFile() {
+        const combinedChunks = new Blob(buffer, { type: 'application/octet-stream' });
+        processPlyData(combinedChunks);
+        buffer.length = 0;
+      }
+    });
   } catch (error) {
     console.error('Error uploading trajectory PLY file:', error);
     throw error;
@@ -215,12 +314,97 @@ export const uploadTrajectoryPly = async (plyBlob, batchId) => {
 };
 
 /**
+ * 解析PLY文件，提取点信息（每行只取前三个数据作为x,y,z坐标）
+ * @param {Blob} plyBlob - PLY文件Blob对象
+ * @returns {Promise} 返回解析后的点数据
+ */
+async function parsePlyFile(plyBlob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    
+    reader.onload = function(event) {
+      try {
+        const data = event.target.result;
+        const text = typeof data === 'string' ? data : String.fromCharCode.apply(null, new Uint8Array(data));
+        const lines = text.split('\n');
+        
+        // 查找顶点数量和数据起始位置
+        let vertexCount = 0;
+        let dataStartIndex = -1;
+        let inHeader = true;
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          
+          if (inHeader) {
+            // 解析头信息
+            if (line.startsWith('element vertex')) {
+              vertexCount = parseInt(line.split(' ')[2], 10);
+              console.log(`发现顶点数量: ${vertexCount}`);
+            }
+            
+            if (line === 'end_header') {
+              dataStartIndex = i + 1;
+              inHeader = false;
+              console.log(`数据起始位置: 第${dataStartIndex}行`);
+              break;
+            }
+          }
+        }
+        
+        // 提取点数据，每行只取前三个数据作为x,y,z坐标
+        const points = [];
+        let actualPointCount = 0;
+        
+        // 从数据起始位置开始读取，最多读取10个点（确保能获取到所有可能的点）
+        for (let i = 0; i < 10 && (dataStartIndex + i) < lines.length; i++) {
+          const line = lines[dataStartIndex + i].trim();
+          if (line) {
+            // 分割数据，只取前三个作为x,y,z坐标
+            const parts = line.split(/\s+/);
+            if (parts.length >= 3) {
+              const x = parseFloat(parts[0]);
+              const y = parseFloat(parts[1]);
+              const z = parseFloat(parts[2]);
+              
+              // 检查坐标值是否有效
+              if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+                points.push({ x, y, z });
+                actualPointCount++;
+                console.log(`解析到点${actualPointCount}: (${x}, ${y}, ${z})`);
+                
+                // 如果已经获取了5个点，就可以停止了
+                if (actualPointCount >= 5) {
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        console.log(`PLY文件解析完成，共提取${points.length}个点`);
+        resolve({ points });
+      } catch (error) {
+        console.error('解析PLY文件时出错:', error);
+        reject(error);
+      }
+    };
+    
+    reader.onerror = reject;
+    
+    // 优先使用readAsText方式，因为PLY文件通常是文本格式
+    reader.readAsText(plyBlob);
+  });
+}
+
+/**
  * 获取校准轨迹的PLY文件
  * @param {string|number} batchId - 批次ID
+ * @param {number} plyBatchNo - PLY批次号，初始为1，每次画新线自增
  * @returns {Promise} 返回校准轨迹的PLY模型数据
  */
-export const getCalibrationTrajectoryPly = async (batchId) => {
-  console.log('getCalibrationTrajectoryPly函数开始执行，batchId:', batchId);
+export const getCalibrationTrajectoryPly = async (batchId, plyBatchNo = 1) => {
+  console.log('getCalibrationTrajectoryPly函数开始执行，batchId:', batchId, 'plyBatchNo:', plyBatchNo);
   try {
     // 参数校验
     if (!batchId) {
@@ -230,17 +414,19 @@ export const getCalibrationTrajectoryPly = async (batchId) => {
 
     // 确保参数是字符串类型
     const batchIdStr = String(batchId).trim();
+    const batchNoStr = String(plyBatchNo).trim();
     
-    console.log('getCalibrationTrajectoryPly: 处理后的参数 - batchId:', batchIdStr);
+    console.log('getCalibrationTrajectoryPly: 处理后的参数 - batchId:', batchIdStr, 'plyBatchNo:', batchNoStr);
 
     // 构造完整URL用于调试
-    const url = `${apiClient.defaults.baseURL}/eus/calibration-trajectory?batchId=${encodeURIComponent(batchIdStr)}`;
+    const url = `${apiClient.defaults.baseURL}/eus/calibration-trajectory?batchId=${encodeURIComponent(batchIdStr)}&plyBatchNo=${encodeURIComponent(batchNoStr)}`;
     console.log('getCalibrationTrajectoryPly 请求URL:', url);
 
     console.log('getCalibrationTrajectoryPly: 准备发送请求');
     const response = await apiClient.get('/eus/calibration-trajectory', {
       params: {
-        batchId: batchIdStr
+        batchId: batchIdStr,
+        plyBatchNo: batchNoStr
       },
       responseType: 'blob'
     });
@@ -255,6 +441,7 @@ export const getCalibrationTrajectoryPly = async (batchId) => {
     // 准备返回对象
     const result = {
       batchId: batchIdStr,
+      plyBatchNo: batchNoStr,
       data: objectUrl,
       size: response.data.size
     };
@@ -262,7 +449,67 @@ export const getCalibrationTrajectoryPly = async (batchId) => {
     
     return result;
   } catch (error) {
-    console.error(`获取校准轨迹PLY模型失败（batchId: ${batchId}）:`, error);
+    console.error(`获取校准轨迹PLY模型失败（batchId: ${batchId}, plyBatchNo: ${plyBatchNo}）:`, error);
+    if (error.response) {
+      console.error('服务器响应:', error.response);
+    }
+    throw error;
+  }
+};
+
+/**
+ * 获取处理后的PLY文件
+ * @param {string|number} batchId - 批次ID
+ * @param {number} plyBatchNo - PLY批次号
+ * @returns {Promise} 返回处理后的PLY模型数据
+ */
+export const getPlyFile = async (batchId, plyBatchNo) => {
+  console.log('getPlyFile函数开始执行，batchId:', batchId, 'plyBatchNo:', plyBatchNo);
+  try {
+    // 参数校验
+    if (!batchId || !plyBatchNo) {
+      console.error('getPlyFile: 参数错误 - batchId或plyBatchNo为空');
+      throw new Error("参数错误：batchId和plyBatchNo不能为空");
+    }
+
+    // 确保参数是字符串类型
+    const batchIdStr = String(batchId).trim();
+    const batchNoStr = String(plyBatchNo).trim();
+    
+    console.log('getPlyFile: 处理后的参数 - batchId:', batchIdStr, 'plyBatchNo:', batchNoStr);
+
+    // 构造完整URL用于调试
+    const url = `${apiClient.defaults.baseURL}/api/getPlyFile?batchId=${encodeURIComponent(batchIdStr)}&plyBatchNo=${encodeURIComponent(batchNoStr)}`;
+    console.log('getPlyFile 请求URL:', url);
+
+    console.log('getPlyFile: 准备发送请求');
+    const response = await apiClient.get('/api/getPlyFile', {
+      params: {
+        batchId: batchIdStr,
+        plyBatchNo: batchNoStr
+      },
+      responseType: 'blob'
+    });
+
+    console.log('getPlyFile: 请求成功，response.data类型:', typeof response.data);
+    console.log('getPlyFile: response.data是否为Blob:', response.data instanceof Blob);
+    
+    // 创建可直接使用的URL
+    const objectUrl = URL.createObjectURL(response.data);
+    console.log('PLY文件URL:', objectUrl);
+    
+    // 准备返回对象
+    const result = {
+      batchId: batchIdStr,
+      plyBatchNo: batchNoStr,
+      data: objectUrl,
+      size: response.data.size
+    };
+    console.log('getPlyFile: 返回结果:', result);
+    
+    return result;
+  } catch (error) {
+    console.error(`获取PLY文件失败（batchId: ${batchId}, plyBatchNo: ${plyBatchNo}）:`, error);
     if (error.response) {
       console.error('服务器响应:', error.response);
     }
@@ -275,5 +522,7 @@ export default {
   processDicomFiles,
   getOrganModel,
   getOrganPlyModel,
-  uploadTrajectoryPly
+  uploadTrajectoryPly,
+  getCalibrationTrajectoryPly,
+  getPlyFile
 };

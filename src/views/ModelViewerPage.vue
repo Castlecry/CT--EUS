@@ -1211,7 +1211,7 @@ end_header\n`;
   return plyContent;
 };
 
-// 上传轨迹点云
+// 上传轨迹点云并处理后端返回的多个PLY文件
 const uploadTrajectory = async (trajectoryId) => {
   if (!plyRenderer.value || isDrawingMode.value) return;
   
@@ -1229,20 +1229,72 @@ const uploadTrajectory = async (trajectoryId) => {
     // 创建Blob对象
     const blob = new Blob([plyContent], { type: 'text/plain' });
     
-    // 使用页面已有的batchId
-    
     console.log('准备上传轨迹点云:', { pointCount: trajectory.points.length });
     
-    // 调用API上传，使用blob和batchId参数
-    const result = await uploadTrajectoryPly(blob, batchId);
+    // 处理每个接收到的PLY文件的回调函数
+    const handlePlyReceived = (trajectoryData) => {
+      console.log('接收到PLY数据:', trajectoryData);
+      
+      // 严格验证数据格式，确保有目标点和四个面点
+      if (!trajectoryData || !trajectoryData.targetPoint || 
+          !trajectoryData.facePoints || trajectoryData.facePoints.length !== 4) {
+        console.error('无效的轨迹数据格式：需要一个目标点和四个面点');
+        return;
+      }
+      
+      // 验证每个点是否包含正确的坐标
+      const isValidPoint = (point) => point && typeof point.x === 'number' && 
+                                      typeof point.y === 'number' && typeof point.z === 'number';
+      
+      if (!isValidPoint(trajectoryData.targetPoint)) {
+        console.error('目标点坐标格式错误');
+        return;
+      }
+      
+      if (!trajectoryData.facePoints.every(isValidPoint)) {
+        console.error('面点坐标格式错误');
+        return;
+      }
+      
+      console.log('目标点坐标:', trajectoryData.targetPoint);
+      console.log('四个面点坐标:', trajectoryData.facePoints);
+      
+      // 使用plyRenderer绘制轨迹点和面
+      if (plyRenderer.value && typeof plyRenderer.value.addTrajectoryFace === 'function') {
+        // 调用更新后的addTrajectoryFace方法 - 按照用户要求，只连接四个面点形成面
+        const success = plyRenderer.value.addTrajectoryFace(
+          trajectoryData.targetPoint,
+          trajectoryData.facePoints,
+          trajectory.color || 0xff00ff // 使用轨迹颜色或默认紫色
+        );
+        
+        if (success) {
+          // 确保渲染场景
+          if (plyRenderer.value.modelRenderer && typeof plyRenderer.value.modelRenderer.render === 'function') {
+            plyRenderer.value.modelRenderer.render();
+            console.log('成功渲染轨迹面并更新场景');
+          }
+        } else {
+          console.error('添加轨迹面失败');
+        }
+      } else {
+        console.error('PlyRenderer不具备addTrajectoryFace方法');
+      }
+    };
+    
+    // 调用更新后的API上传，传入回调函数
+    const result = await uploadTrajectoryPly(blob, batchId, handlePlyReceived);
     
     // 标记轨迹为已上传
     trajectory.uploaded = true;
+    // 自增PLY批次号，以便下次上传时使用新的批次号
+    trajectory.plyBatchNo = (trajectory.plyBatchNo || 1) + 1;
+    console.log('轨迹上传成功:', trajectoryId, '新的PLY批次号:', trajectory.plyBatchNo - 1);
     
     // 尝试获取校准轨迹
     try {
       console.log('尝试获取校准轨迹');
-      const calibrationResult = await getCalibrationTrajectoryPly(batchId);
+      const calibrationResult = await getCalibrationTrajectoryPly(batchId, trajectory.plyBatchNo - 1);
       
       // 将校准轨迹添加到记录中
       const calibrationItem = {
@@ -1261,7 +1313,7 @@ const uploadTrajectory = async (trajectoryId) => {
     }
     
     // 显示成功消息
-    alert('轨迹点云上传成功！');
+    alert('轨迹点云上传成功！所有PLY文件已处理完成。');
     console.log('轨迹点云上传成功:', result);
   } catch (error) {
     console.error('上传轨迹点云失败:', error);
@@ -1338,10 +1390,14 @@ const deleteCalibrationTrajectory = (trajectoryId) => {
       hideCalibrationTrajectory();
     }
     
-    // 从列表中删除
+    // 从列表中删除（确保界面立即更新）
     const index = calibrationTrajectory.value.findIndex(t => t.id === trajectoryId);
     if (index !== -1) {
       const trajectory = calibrationTrajectory.value[index];
+      
+      // 立即从界面列表中移除（解决删除无响应问题）
+      calibrationTrajectory.value.splice(index, 1);
+      
       // 释放URL对象
       if (trajectory.dataUrl) {
         try {
@@ -1350,8 +1406,12 @@ const deleteCalibrationTrajectory = (trajectoryId) => {
           console.warn('释放URL对象失败:', e);
         }
       }
-      // 从数组中移除
-      calibrationTrajectory.value.splice(index, 1);
+      
+      // 同时从渲染器中清除相关资源
+      if (plyRenderer.value.calibrationTrajectories) {
+        plyRenderer.value.calibrationTrajectories.delete(trajectoryId);
+      }
+      
       console.log('校准轨迹已删除:', trajectoryId);
     }
   } catch (error) {
@@ -1365,6 +1425,13 @@ const deleteHistoryTrajectory = (trajectoryId) => {
   if (!plyRenderer.value || isDrawingMode.value) return;
   
   try {
+    // 先从界面状态中删除
+    const index = trajectoryHistory.value.findIndex(t => t.id === trajectoryId);
+    if (index !== -1) {
+      trajectoryHistory.value.splice(index, 1);
+    }
+    
+    // 然后从渲染器中删除
     if (typeof plyRenderer.value.deleteHistoryTrajectory === 'function') {
       const success = plyRenderer.value.deleteHistoryTrajectory(trajectoryId);
       if (success) {
@@ -1374,13 +1441,17 @@ const deleteHistoryTrajectory = (trajectoryId) => {
         }
         // 移除展开的视图
         expandedPointsViews.value.delete(trajectoryId);
-        // 重新加载轨迹历史
-        loadTrajectoryHistory();
         console.log('成功删除历史轨迹:', trajectoryId);
+      } else {
+        // 如果渲染器删除失败，恢复界面状态
+        loadTrajectoryHistory();
+        console.error('渲染器中删除轨迹失败');
       }
     }
   } catch (error) {
     console.error('删除历史轨迹失败:', error);
+    // 出错时重新加载轨迹历史
+    loadTrajectoryHistory();
   }
 };
 </script>

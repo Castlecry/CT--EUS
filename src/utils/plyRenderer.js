@@ -280,6 +280,116 @@ class PlyRenderer {
   }
 
   /**
+   * 添加轨迹面（目标点+四个面点）
+   * @param {Object} targetPoint - 目标点坐标 {x, y, z}
+   * @param {Array<Object>} facePoints - 四个面点坐标数组 [{x, y, z}, ...]
+   * @param {number} color - 颜色值（十六进制）
+   * @returns {boolean} 添加是否成功
+   */
+  addTrajectoryFace(targetPoint, facePoints, color = 0xff0000) {
+    try {
+      // 验证参数
+      if (!targetPoint || !facePoints || facePoints.length !== 4) {
+        console.error('addTrajectoryFace: 无效的参数');
+        return false;
+      }
+      
+      // 确保轨迹面集合存在
+      if (!this.trajectoryFaces) {
+        this.trajectoryFaces = new Map();
+      }
+      
+      // 生成唯一ID
+      const faceId = `trajectory_face_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // 创建组来容纳目标点和面
+      const faceGroup = new THREE.Group();
+      faceGroup.name = faceId;
+      
+      // 1. 绘制目标点（使用红色大点标识）
+      const targetGeometry = new THREE.BufferGeometry();
+      const targetPositions = new Float32Array([targetPoint.x, targetPoint.y, targetPoint.z]);
+      targetGeometry.setAttribute('position', new THREE.BufferAttribute(targetPositions, 3));
+      
+      const targetMaterial = new THREE.PointsMaterial({
+        color: 0xff0000,  // 红色
+        size: 2.0,        // 更大的点大小
+        sizeAttenuation: true
+      });
+      
+      const targetPointObject = new THREE.Points(targetGeometry, targetMaterial);
+      targetPointObject.name = `${faceId}_target`;
+      faceGroup.add(targetPointObject);
+      
+      // 2. 绘制四个面点（使用指定颜色的中等大小点）
+      const facePointsGeometry = new THREE.BufferGeometry();
+      const facePointsPositions = new Float32Array(4 * 3);
+      
+      for (let i = 0; i < 4; i++) {
+        facePointsPositions[i * 3] = facePoints[i].x;
+        facePointsPositions[i * 3 + 1] = facePoints[i].y;
+        facePointsPositions[i * 3 + 2] = facePoints[i].z;
+      }
+      
+      facePointsGeometry.setAttribute('position', new THREE.BufferAttribute(facePointsPositions, 3));
+      
+      const facePointsMaterial = new THREE.PointsMaterial({
+        color: color,
+        size: 1.0,
+        sizeAttenuation: true
+      });
+      
+      const facePointsObject = new THREE.Points(facePointsGeometry, facePointsMaterial);
+      facePointsObject.name = `${faceId}_points`;
+      faceGroup.add(facePointsObject);
+      
+      // 3. 连接四个面点形成四边形 - 按照用户要求，只连接四个面点形成面
+      const faceGeometry = new THREE.BufferGeometry();
+      const faceVertices = new Float32Array([
+        facePoints[0].x, facePoints[0].y, facePoints[0].z,
+        facePoints[1].x, facePoints[1].y, facePoints[1].z,
+        facePoints[2].x, facePoints[2].y, facePoints[2].z,
+        facePoints[3].x, facePoints[3].y, facePoints[3].z
+      ]);
+      
+      // 使用两个三角形组成四边形
+      const faceIndices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+      
+      faceGeometry.setAttribute('position', new THREE.BufferAttribute(faceVertices, 3));
+      faceGeometry.setIndex(new THREE.BufferAttribute(faceIndices, 1));
+      
+      // 计算法线
+      faceGeometry.computeVertexNormals();
+      
+      // 创建半透明材质
+      const faceMaterial = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide
+      });
+      
+      const faceMesh = new THREE.Mesh(faceGeometry, faceMaterial);
+      faceMesh.name = `${faceId}_face`;
+      faceGroup.add(faceMesh);
+      
+      // 注意：按照用户要求，不再连接目标点到四个面点
+      
+      // 添加到场景
+      this.scene.add(faceGroup);
+      
+      // 保存到轨迹面集合
+      this.trajectoryFaces.set(faceId, faceGroup);
+      
+      console.log(`成功添加轨迹面 ${faceId}，包含目标点和4个面点形成的四边形面`);
+      return true;
+    } catch (error) {
+      console.error('添加轨迹面失败:', error);
+      return false;
+    }
+  }
+
+  /**
    * 渲染法向量
    * @private
    * @param {string} organName - 器官名称
@@ -511,12 +621,24 @@ class PlyRenderer {
     
     let pointToAdd = null;
     
+    // 获取摄像机前方方向
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+    
     // 方法1: 尝试吸附到最近的点位
     if (this.snapEnabled && this.currentModel && this.pointsData.has(this.currentModel)) {
       const closestPoint = this._findClosestPoint(this.mouse);
       if (closestPoint) {
-        pointToAdd = closestPoint;
-        console.log('吸附到最近点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+        // 验证吸附点是否在摄像机可见方向
+        const directionToPoint = new THREE.Vector3().subVectors(closestPoint, this.camera.position).normalize();
+        const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
+        const forwardDot = directionToPoint.dot(cameraForward);
+        
+        // 严格检查：点必须在摄像机前方（与摄像机朝向夹角小于90度）且与射线方向高度一致
+        if (dotProduct > 0.95 && forwardDot > 0) {
+          pointToAdd = closestPoint;
+          console.log('吸附到最近点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+        }
       }
     }
     
@@ -524,19 +646,37 @@ class PlyRenderer {
     if (!pointToAdd && this.modelRenderer && this.modelRenderer.models && this.currentModel) {
       const model = this.modelRenderer.models.get(this.currentModel);
       if (model) {
-        const modelIntersects = this.raycaster.intersectObject(model, true);
+        // 只保留在摄像机前方的交点
+        const modelIntersects = this.raycaster.intersectObject(model, true).filter(intersect => {
+          // 计算交点是否在摄像机前方
+          const directionToPoint = new THREE.Vector3().subVectors(intersect.point, this.camera.position).normalize();
+          return directionToPoint.dot(cameraForward) > 0;
+        });
+        
         if (modelIntersects.length > 0) {
-          pointToAdd = modelIntersects[0].point;
-          console.log('检测到模型表面交点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+          // 只选择距离摄像机最近的交点（确保是可见表面）
+          pointToAdd = modelIntersects.reduce((closest, current) => 
+            current.distance < closest.distance ? current : closest
+          ).point;
+          console.log('检测到模型表面交点(可见面):', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
         }
       }
     }
     
-    // 方法3: 如果以上都失败，检测整个场景（确保总能画上线）
+    // 方法3: 如果以上都失败，检测整个场景 - 但只考虑可见物体
     if (!pointToAdd) {
-      const sceneIntersects = this.raycaster.intersectObjects(this.scene.children, true);
+      // 只保留在摄像机前方的交点
+      const sceneIntersects = this.raycaster.intersectObjects(this.scene.children, true).filter(intersect => {
+        // 检查交点是否在摄像机前方
+        const directionToPoint = new THREE.Vector3().subVectors(intersect.point, this.camera.position).normalize();
+        return directionToPoint.dot(cameraForward) > 0;
+      });
+      
       if (sceneIntersects.length > 0) {
-        pointToAdd = sceneIntersects[0].point;
+        // 只选择距离摄像机最近的交点
+        pointToAdd = sceneIntersects.reduce((closest, current) => 
+          current.distance < closest.distance ? current : closest
+        ).point;
         console.log('使用场景交点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
       }
     }
@@ -551,14 +691,24 @@ class PlyRenderer {
       console.log('使用射线方向创建点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
     }
     
-    // 添加点到轨迹
+    // 添加点到轨迹前，确保点在摄像机前方和视角可见范围内
     if (pointToAdd) {
-      this.trajectoryPoints.push(pointToAdd.clone());
-      this.snappedTrajectoryPoints.push(pointToAdd.clone());
+      // 计算点是否在摄像机前方且在合理的视角范围内
+      const directionToPoint = new THREE.Vector3().subVectors(pointToAdd, this.camera.position).normalize();
+      const forwardDot = directionToPoint.dot(cameraForward);
       
-      // 调用吸附回调
-      if (this.snapCallback) {
-        this.snapCallback(pointToAdd);
+      // 严格检查：点必须在摄像机前方（点积为正）且在合理视角范围内
+      // 这样可以确保只捕获用户实际能看到的点
+      if (forwardDot > 0) {
+        this.trajectoryPoints.push(pointToAdd.clone());
+        this.snappedTrajectoryPoints.push(pointToAdd.clone());
+        
+        // 调用吸附回调
+        if (this.snapCallback) {
+          this.snapCallback(pointToAdd);
+        }
+      } else {
+        console.log('忽略摄像机背面或视角不可见的点');
       }
     }
   }
@@ -656,12 +806,24 @@ class PlyRenderer {
     );
     
     if (intersects.length > 0) {
-      // 找到距离摄像机最近的交点（外表面）
+      // 只考虑距离摄像机最近的交点（确保是可见的外表面）
+      // 这可以防止射线穿过模型捕捉到背面的点
       const closestIntersect = intersects.reduce((closest, current) => 
         current.distance < closest.distance ? current : closest
       );
       
-      return closestIntersect.point;
+      // 额外验证：确保交点在摄像机前方
+      const cameraForward = new THREE.Vector3();
+      this.camera.getWorldDirection(cameraForward);
+      const directionToPoint = new THREE.Vector3().subVectors(closestIntersect.point, this.camera.position).normalize();
+      const dotProduct = directionToPoint.dot(cameraForward);
+      
+      // 如果点在摄像机前方（点积为正）
+      if (dotProduct > 0) {
+        return closestIntersect.point;
+      }
+      
+      console.log('忽略摄像机背面的投影点');
     }
     
     return null;

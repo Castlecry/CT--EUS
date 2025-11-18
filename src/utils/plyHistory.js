@@ -83,7 +83,8 @@ class PlyHistoryManager {
       points: [...points],
       lineObject,
       timestamp,
-      color
+      color,
+      plyBatchNo: 1 // 初始化PLY批次号为1
     };
     
     // 添加到历史记录
