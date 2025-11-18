@@ -187,20 +187,22 @@ export const getOrganPlyModel = async (organName, batchId) => {
  * 上传轨迹点云为PLY文件并处理后端分批返回的PLY文件流
  * @param {Blob} plyBlob - PLY文件Blob对象
  * @param {string|number} batchId - 批次ID
+ * @param {number} plyBatchNo - PLY批次号，初始为1，每次画新线自增
  * @param {Function} onPlyReceived - 处理每个接收到的PLY文件的回调函数
  * @returns {Promise} 返回处理结果
  */
-export const uploadTrajectoryPly = async (plyBlob, batchId, onPlyReceived) => {
-  if (!plyBlob || !batchId) {
-    console.error('No PLY file or batchId provided');
-    return Promise.reject(new Error('No PLY file or batchId provided'));
+export const uploadTrajectoryPly = async (plyBlob, batchId, plyBatchNo, onPlyReceived) => {
+  if (!plyBlob || !batchId || !plyBatchNo) {
+    console.error('No PLY file or batchId or plyBatchNo provided');
+    return Promise.reject(new Error('No PLY file or batchId or plyBatchNo provided'));
   }
   
   try {
     // 设置更长的超时时间，确保能接收所有PLY文件
     const response = await apiClient.post('/eus/generate-video', {
       trajectory: plyBlob,
-      batch_id: batchId
+      batch_id: batchId,
+      ply_batch_no: plyBatchNo
     }, {
       headers: {
         'Content-Type': 'multipart/form-data'

@@ -1283,7 +1283,7 @@ const uploadTrajectory = async (trajectoryId) => {
     };
     
     // 调用更新后的API上传，传入回调函数
-    const result = await uploadTrajectoryPly(blob, batchId, handlePlyReceived);
+    const result = await uploadTrajectoryPly(blob, batchId, trajectory.plyBatchNo, handlePlyReceived);
     
     // 标记轨迹为已上传
     trajectory.uploaded = true;
