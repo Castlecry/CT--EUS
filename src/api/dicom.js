@@ -243,22 +243,13 @@ export const getOrganPlyModel = async (organName, batchId) => {
 };
 
 /**
- * 上传轨迹点云为PLY文件并处理后端分批返回的PLY文件流
+ * 上传轨迹点云为PLY文件到后端
  * @param {Blob} plyBlob - PLY文件Blob对象
  * @param {string|number} batchId - 批次ID
  * @param {number} plyBatchNo - PLY批次号，初始为1，每次画新线自增
- * @param {Function} onPlyReceived - 处理每个接收到的PLY文件的回调函数
  * @returns {Promise} 返回处理结果
  */
-/**
- * 上传轨迹点云为PLY文件并处理后端分批返回的PLY文件流
- * @param {Blob} plyBlob - PLY文件Blob对象
- * @param {string|number} batchId - 批次ID
- * @param {number} plyBatchNo - PLY批次号，初始为1，每次画新线自增
- * @param {Function} onPlyReceived - 处理每个接收到的PLY文件的回调函数
- * @returns {Promise} 返回处理结果
- */
-export const uploadTrajectoryPly = async (plyBlob, batchId, plyBatchNo, onPlyReceived) => {
+export const uploadTrajectoryPly = async (plyBlob, batchId, plyBatchNo) => {
   if (!plyBlob || !batchId || !plyBatchNo) {
     console.error('No PLY file or batchId or plyBatchNo provided');
     return Promise.reject(new Error('No PLY file or batchId or plyBatchNo provided'));
@@ -267,109 +258,20 @@ export const uploadTrajectoryPly = async (plyBlob, batchId, plyBatchNo, onPlyRec
   try {
     // 创建FormData对象处理文件上传
     const formData = new FormData();
-    formData.append('plyFile', plyBlob); // 修正：使用plyFile作为文件参数名
+    formData.append('plyFile', plyBlob); // 使用plyFile作为文件参数名
     formData.append('batchId', batchId); // 后端期望的参数名
     formData.append('plyBatchNo', plyBatchNo); // 后端期望的参数名
     
-    // 设置更长的超时时间，确保能接收所有文件
-    const response = await apiClient.post('/eus/generate-video', formData, {
+    // 发送请求到后端
+    await apiClient.post('/eus/generate-video', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
-      responseType: 'stream',
       timeout: 600000 // 10分钟超时
     });
     
-    // 创建一个Promise来处理流式响应
-    return new Promise((resolve, reject) => {
-      const reader = response.data.getReader();
-      const buffer = [];
-      let fileCount = 0;
-      
-      // 超时处理
-      const timeoutId = setTimeout(() => {
-        reject(new Error('接收PLY文件超时，请检查网络连接或后端服务'));
-      }, 600000);
-      
-      reader.read().then(function processChunk({ done, value }) {
-        clearTimeout(timeoutId);
-        
-        if (done) {
-          // 处理最后一个文件
-          if (buffer.length > 0) {
-            processCurrentFile();
-          }
-          console.log(`所有PLY文件接收完成，共${fileCount}个文件`);
-          resolve({ status: 'completed', message: '所有PLY文件处理完成', fileCount });
-          return;
-        }
-        
-        buffer.push(value);
-        
-        // 检查缓冲区中是否包含完整的PLY文件
-        const combinedBuffer = new Uint8Array(buffer.reduce((acc, val) => acc + val.byteLength, 0));
-        let offset = 0;
-        for (const chunk of buffer) {
-          combinedBuffer.set(new Uint8Array(chunk), offset);
-          offset += chunk.byteLength;
-        }
-        
-        const bufferString = String.fromCharCode.apply(null, combinedBuffer);
-        const plyHeaderIndex = bufferString.indexOf('ply');
-        
-        // 如果找到新的PLY文件头，处理前面的完整文件
-        if (plyHeaderIndex > 0) {
-          const completeFileData = combinedBuffer.slice(0, plyHeaderIndex);
-          const remainingData = combinedBuffer.slice(plyHeaderIndex);
-          
-          processPlyData(completeFileData);
-          
-          // 更新缓冲区
-          buffer.length = 0;
-          buffer.push(remainingData.buffer);
-        }
-        
-        // 继续读取下一个数据块
-        setTimeout(() => {
-          reader.read().then(processChunk).catch(error => {
-            clearTimeout(timeoutId);
-            reject(error);
-          });
-        }, 50);
-      }).catch(error => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
-      
-      // 处理PLY文件数据
-      function processPlyData(plyData) {
-        const plyBlob = new Blob([plyData], { type: 'application/octet-stream' });
-        parsePlyFile(plyBlob).then(parsedData => {
-          if (parsedData.points && parsedData.points.length >= 5) {
-            const trajectoryData = {
-              targetPoint: parsedData.points[0],
-              facePoints: parsedData.points.slice(1, 5)
-            };
-            
-            fileCount++;
-            console.log(`处理第${fileCount}个PLY文件，包含${parsedData.points.length}个点`);
-            
-            if (typeof onPlyReceived === 'function') {
-              onPlyReceived(trajectoryData);
-            }
-          }
-        }).catch(error => {
-          console.error('解析PLY文件失败:', error);
-        });
-      }
-      
-      // 处理当前缓冲区中的文件
-      function processCurrentFile() {
-        const combinedChunks = new Blob(buffer, { type: 'application/octet-stream' });
-        processPlyData(combinedChunks);
-        buffer.length = 0;
-      }
-    });
+    console.log('Trajectory PLY file uploaded successfully');
+    return { status: 'completed', message: 'PLY文件上传成功' };
   } catch (error) {
     console.error('Error uploading trajectory PLY file:', error);
     throw error;
