@@ -28,6 +28,7 @@
             </button>
           </div>
         
+        </div>
         <!-- 器官选择视图 -->
         <div v-if="currentViewType === 'select'" class="organ-selection-view">
           <div class="organ-panel-header" @click="togglePanel">
@@ -311,6 +312,229 @@
                     </div>
                   </div>
                   
+                  <!-- 点2CT选点功能 -->
+                  <div class="point2ct-section">
+                    <div class="section-header">
+                      <h5>点2CT选点功能</h5>
+                      <button 
+                        class="toggle-point2ct-btn" 
+                        @click="togglePoint2CTMode"
+                        :class="{ active: isPoint2CTMode }"
+                      >
+                        {{ isPoint2CTMode ? '退出选点' : '进入选点' }}
+                      </button>
+                    </div>
+                    
+                    <!-- 选点状态提示 -->
+                    <div class="point2ct-status" v-if="isPoint2CTMode">
+                      <!-- 操作步骤指示器 -->
+                      <div class="operation-steps">
+                        <div class="step" :class="{ active: !selectedPoint, completed: selectedPoint }"><span>1</span> 选择点</div>
+                        <div class="step-separator"></div>
+                        <div class="step" :class="{ active: selectedPoint && !selectedAxis, completed: selectedAxis }"><span>2</span> 选择轴向</div>
+                        <div class="step-separator"></div>
+                        <div class="step" :class="{ active: selectedAxis && !firstAngleSet, completed: firstAngleSet }"><span>3</span> 角度1</div>
+                        <div class="step-separator"></div>
+                        <div class="step" :class="{ active: firstAngleSet && !secondAngleSet, completed: secondAngleSet }"><span>4</span> 角度2</div>
+                        <div class="step-separator"></div>
+                        <div class="step" :class="{ active: secondAngleSet && !thirdAngleSet, completed: thirdAngleSet }"><span>5</span> 角度3</div>
+                        <div class="step-separator"></div>
+                        <div class="step" :class="{ active: thirdAngleSet, completed: false }"><span>6</span> 上传</div>
+                      </div>
+                       
+                      <!-- 详细状态提示 -->
+                      <div v-if="!selectedPoint" class="status-message">
+                        <span class="status-indicator searching"></span>
+                        请点击模型上的点进行选择（吸附距离：5单位）
+                      </div>
+                      <div v-else-if="selectedPoint && !selectedAxis" class="status-message info">
+                        <span class="status-indicator info"></span>
+                        已选中点，请选择一个轴向单位向量（x、y或z）
+                      </div>
+                      <div v-else-if="selectedAxis && !firstAngleSet" class="status-message info">
+                        <span class="status-indicator info"></span>
+                        请调整第一个角度（围绕法向量旋转），然后点击确认
+                      </div>
+                      <div v-else-if="firstAngleSet && !secondAngleSet" class="status-message info">
+                        <span class="status-indicator info"></span>
+                        请调整第二个角度（围绕{{ selectedAxis }}轴旋转），然后点击确认
+                      </div>
+                      <div v-else-if="secondAngleSet && !thirdAngleSet" class="status-message info">
+                        <span class="status-indicator info"></span>
+                        请调整第三个角度（围绕面法向量旋转），然后点击确认
+                      </div>
+                      <div v-else-if="thirdAngleSet" class="status-message success">
+                        <span class="status-indicator success"></span>
+                        所有参数已设置完成，可以点击上传按钮生成模型
+                      </div>
+                    
+                    <!-- 选中点信息和操作 -->
+                    <div v-if="selectedPoint" class="selected-point-info">
+                      <div class="point-details">
+                        <h6>选中点信息</h6>
+                        <div class="detail-item">
+                          <span class="label">坐标：</span>
+                          <span class="value">({{ selectedPoint.x.toFixed(2) }}, {{ selectedPoint.y.toFixed(2) }}, {{ selectedPoint.z.toFixed(2) }})</span>
+                        </div>
+                        <div class="detail-item">
+                          <span class="label">法向量：</span>
+                          <span class="value" v-if="selectedPointNormal">
+                            ({{ selectedPointNormal.x.toFixed(4) }}, {{ selectedPointNormal.y.toFixed(4) }}, {{ selectedPointNormal.z.toFixed(4) }})
+                          </span>
+                          <span class="value" v-else>未知</span>
+                        </div>
+                      </div>
+                      
+                      <!-- 单位向量选择 -->
+                      <div class="unit-vector-selection">
+                        <h6>选择轴向单位向量</h6>
+                        <div class="vector-options">
+                          <button 
+                            v-for="axis in ['x', 'y', 'z']" 
+                            :key="axis"
+                            class="vector-btn"
+                            :class="{ active: selectedAxis === axis }"
+                            @click="selectUnitVector(axis)"
+                          >
+                            {{ axis }}轴 ({{ getVectorString(axis) }})
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <!-- 第一个角度输入 -->
+                      <div v-if="selectedAxis && !firstAngleSet" class="angle-input-section">
+                        <h6>选择第一个角度（围绕法向量旋转 0-180°）</h6>
+                        <div class="angle-controls">
+                          <input 
+                            type="range" 
+                            v-model.number="firstAngle" 
+                            min="0" 
+                            max="180" 
+                            step="1"
+                            @input="updateFirstAngle"
+                          >
+                          <span class="angle-value">{{ firstAngle }}°</span>
+                          <button class="confirm-btn" @click="confirmFirstAngle" :disabled="!selectedPoint || !selectedAxis">
+                            确认角度1
+                          </button>
+                        </div>
+                        <div class="angle-hint">
+                          <i class="hint-icon">💡</i>
+                          提示：该角度控制正方形围绕点的法向量顺时针旋转，决定正方形在法向量方向上的初始朝向
+                        </div>
+                      </div>
+                      
+                      <!-- 第二个角度输入 -->
+                      <div v-if="firstAngleSet && !secondAngleSet" class="angle-input-section">
+                        <h6>选择第二个角度（围绕{{ selectedAxis }}轴旋转 0-180°）</h6>
+                        <div class="angle-controls">
+                          <input 
+                            type="range" 
+                            v-model.number="secondAngle" 
+                            min="0" 
+                            max="180" 
+                            step="1"
+                            @input="updateSecondAngle"
+                          >
+                          <span class="angle-value">{{ secondAngle }}°</span>
+                          <button class="confirm-btn" @click="confirmSecondAngle" :disabled="!firstAngleSet">
+                            确认角度2
+                          </button>
+                        </div>
+                        <div class="angle-hint">
+                          <i class="hint-icon">💡</i>
+                          提示：该角度控制正方形围绕选中的{{ selectedAxis }}轴顺时针旋转，调整正方形的倾斜角度
+                        </div>
+                      </div>
+                      
+                      <!-- 第三个角度输入 -->
+                      <div v-if="secondAngleSet && !thirdAngleSet" class="angle-input-section">
+                        <h6>选择第三个角度（围绕面法向量旋转 0-180°）</h6>
+                        <div class="angle-controls">
+                          <input 
+                            type="range" 
+                            v-model.number="thirdAngle" 
+                            min="0" 
+                            max="180" 
+                            step="1"
+                            @input="updateThirdAngle"
+                          >
+                          <span class="angle-value">{{ thirdAngle }}°</span>
+                          <button class="confirm-btn" @click="confirmThirdAngle" :disabled="!secondAngleSet">
+                            确认角度3
+                          </button>
+                        </div>
+                        <div class="angle-hint">
+                          <i class="hint-icon">💡</i>
+                          提示：该角度控制正方形围绕当前面的法向量顺时针旋转，进一步调整正方形的最终朝向
+                        </div>
+                      </div>
+                      
+                      <!-- 上传按钮 -->
+                      <div v-if="thirdAngleSet" class="upload-section">
+                        <div class="upload-preview">
+                          <div class="uploaded-params">
+                            <h6>即将上传的参数</h6>
+                            <div class="param-item">
+                              <span class="param-label">选中点坐标：</span>
+                              <span class="param-value">({{ selectedPoint.x.toFixed(2) }}, {{ selectedPoint.y.toFixed(2) }}, {{ selectedPoint.z.toFixed(2) }})</span>
+                            </div>
+                            <div class="param-item">
+                              <span class="param-label">单位向量：</span>
+                              <span class="param-value">{{ getVectorString(selectedAxis) }}</span>
+                            </div>
+                            <div class="param-item">
+                              <span class="param-label">旋转角度1：</span>
+                              <span class="param-value">{{ firstAngle }}°</span>
+                            </div>
+                            <div class="param-item">
+                              <span class="param-label">旋转角度2：</span>
+                              <span class="param-value">{{ secondAngle }}°</span>
+                            </div>
+                            <div class="param-item">
+                              <span class="param-label">旋转角度3：</span>
+                              <span class="param-value">{{ thirdAngle }}°</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <!-- 上传状态显示 -->
+                        <div v-if="isUploading || uploadMessage" class="upload-status-container">
+                          <div v-if="isUploading" class="upload-loading">
+                            <span class="loading-spinner">⏳</span>
+                            <span>{{ uploadMessage || '处理中...' }}</span>
+                          </div>
+                          <div v-else-if="uploadSuccess !== null" 
+                               :class="['upload-result', uploadSuccess ? 'success' : 'error']">
+                            <span class="result-icon">{{ uploadSuccess ? '✅' : '❌' }}</span>
+                            <span>{{ uploadMessage }}</span>
+                          </div>
+                        </div>
+                        
+                        <button 
+                          class="upload-point2ct-btn primary" 
+                          @click="handleUploadPoint2CTParams"
+                          :disabled="!canUploadPoint2CT || isUploading"
+                        >
+                          <i class="upload-icon">📤</i> 上传参数生成模型
+                        </button>
+                        <div class="upload-info">
+                          <p>点击后，系统将发送参数到后端并生成新的PLY模型</p>
+                          <p class="upload-note">注意：上传后将显示生成的新模型面</p>
+                        </div>
+                      </div>
+                      
+                      <!-- 重置按钮 -->
+                      <button 
+                        class="reset-point2ct-btn" 
+                        @click="resetPoint2CT"
+                        :disabled="!selectedPoint"
+                      >
+                        重新选点
+                      </button>
+                    </div>
+                  </div>
+                  
                   <!-- 颜色选择器 -->
                   <div class="color-selection-section">
                     <div class="section-header">
@@ -382,7 +606,7 @@
             </div>
           </div>
         </div>
-        </div>
+      </div>
       </div>
       <!-- 模型查看区域 - 固定显示3D模型 -->
       <div class="model-viewer-section">
@@ -411,9 +635,10 @@
 import '../styles/modelviewer-page.css';
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly, getCalibrationTrajectoryPly } from '../api/dicom.js';
+import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly, getCalibrationTrajectoryPly, uploadPoint2CTParams } from '../api/dicom.js';
 import ModelRenderer from '../utils/modelRenderer.js';
 import PlyRenderer from '../utils/plyRenderer.js';
+import Point2CTManager from '../utils/point2ct.js';
 import {
   presetColors,
   rgbToHex,
@@ -458,6 +683,23 @@ const isPanelExpanded = ref(true); // 控制面板展开/收起状态
 const calibrationTrajectory = ref([]); // 校准轨迹记录
 const loadingCalibration = ref(false); // 校准轨迹加载状态
 const showCalibrationTrajectory = ref(true); // 是否显示校准轨迹区域
+
+// 点2CT选点功能相关状态
+const isPoint2CTMode = ref(false); // 是否处于选点模式
+const isUploading = ref(false); // 上传状态
+const uploadSuccess = ref(null); // 上传成功状态 (null: 未开始, true: 成功, false: 失败)
+const uploadMessage = ref(''); // 上传消息提示
+const generatedPlyUrl = ref(''); // 生成的PLY模型URL
+const selectedPoint = ref(null); // 选中的点坐标
+const selectedPointNormal = ref(null); // 选中点的法向量
+const selectedAxis = ref(null); // 选择的轴向单位向量
+const firstAngle = ref(0); // 第一个旋转角度
+const secondAngle = ref(0); // 第二个旋转角度
+const thirdAngle = ref(0); // 第三个旋转角度
+const firstAngleSet = ref(false); // 第一个角度是否已确认
+const secondAngleSet = ref(false); // 第二个角度是否已确认
+const thirdAngleSet = ref(false); // 第三个角度是否已确认
+const canUploadPoint2CT = ref(false); // 是否可以上传
 const currentDisplayedCalibrationId = ref(null); // 当前显示的校准轨迹ID
 
 // 视图切换状态
@@ -963,6 +1205,236 @@ const switchToDetailView = (organKey) => {
     }
   });
   console.log(`查看模型详情: ${organList[organKey]}`);
+};
+
+// 切换点2CT选点模式
+const togglePoint2CTMode = () => {
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value) {
+    alert('请先加载模型后再进入选点模式');
+    return;
+  }
+  
+  isPoint2CTMode.value = !isPoint2CTMode.value;
+  
+  if (isPoint2CTMode.value) {
+    console.log('进入点2CT选点模式');
+    // 启用吸附功能
+    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 5);
+    // 重置选点状态
+    resetPoint2CT();
+  } else {
+    console.log('退出点2CT选点模式');
+    // 禁用吸附功能
+    plyRenderer.value.disableSnapToClosestPoint();
+    // 清除选中点的高亮
+    if (selectedPoint.value) {
+      plyRenderer.value.highlightPoint(null);
+    }
+  }
+};
+
+// 处理点选择事件
+const handlePointSelection = (pointData) => {
+  if (!isPoint2CTMode.value) return;
+  
+  console.log('选中点:', pointData);
+  selectedPoint.value = pointData.coordinate;
+  selectedPointNormal.value = pointData.normal;
+  
+  // 在渲染器中高亮显示选中的点（红色）
+  plyRenderer.value.highlightPoint(pointData.coordinate, { color: [1, 0, 0] });
+  
+  // 初始化point2CTManager
+  point2CTManager.setSelectedPoint(pointData.coordinate, pointData.normal);
+};
+
+// 获取单位向量字符串
+const getVectorString = (axis) => {
+  const vector = getUnitVector(axis);
+  return `(${vector.x}, ${vector.y}, ${vector.z})`;
+};
+
+// 选择单位向量
+const selectUnitVector = (axis) => {
+  selectedAxis.value = axis;
+  const unitVector = getUnitVector(axis);
+  
+  // 设置单位向量并生成初始正方形
+  point2CTManager.setUnitVector(unitVector);
+  point2CTManager.generateSquare();
+  
+  // 在渲染器中显示正方形
+  const squarePoints = point2CTManager.getSquarePoints();
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
+    plyRenderer.value.showSquare(squarePoints);
+  }
+};
+
+// 更新第一个角度
+const updateFirstAngle = () => {
+  if (!selectedPoint.value || !selectedAxis.value) return;
+  
+  // 围绕法向量旋转
+  point2CTManager.rotateAroundNormal(firstAngle.value);
+  
+  // 更新渲染器中的正方形显示
+  const squarePoints = point2CTManager.getSquarePoints();
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
+    plyRenderer.value.showSquare(squarePoints);
+  }
+};
+
+// 确认第一个角度
+const confirmFirstAngle = () => {
+  firstAngleSet.value = true;
+  console.log('确认第一个角度:', firstAngle.value);
+};
+
+// 更新第二个角度
+const updateSecondAngle = () => {
+  if (!firstAngleSet.value) return;
+  
+  // 围绕选择的轴向旋转
+  point2CTManager.rotateAroundUnitVector(secondAngle.value);
+  
+  // 更新渲染器中的正方形显示
+  const squarePoints = point2CTManager.getSquarePoints();
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
+    plyRenderer.value.showSquare(squarePoints);
+  }
+};
+
+// 确认第二个角度
+const confirmSecondAngle = () => {
+  secondAngleSet.value = true;
+  console.log('确认第二个角度:', secondAngle.value);
+  
+  // 计算正方形面的法向量用于第三个旋转
+  point2CTManager.calculateFaceNormal();
+};
+
+// 更新第三个角度
+const updateThirdAngle = () => {
+  if (!secondAngleSet.value) return;
+  
+  // 围绕面法向量旋转
+  point2CTManager.rotateAroundFaceNormal(thirdAngle.value);
+  
+  // 更新渲染器中的正方形显示
+  const squarePoints = point2CTManager.getSquarePoints();
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
+    plyRenderer.value.showSquare(squarePoints);
+  }
+};
+
+// 确认第三个角度
+const confirmThirdAngle = () => {
+  thirdAngleSet.value = true;
+  canUploadPoint2CT.value = true;
+  console.log('确认第三个角度:', thirdAngle.value);
+};
+
+// 重置点2CT选点状态
+const resetPoint2CT = () => {
+  selectedPoint.value = null;
+  selectedPointNormal.value = null;
+  selectedAxis.value = null;
+  firstAngle.value = 0;
+  secondAngle.value = 0;
+  thirdAngle.value = 0;
+  firstAngleSet.value = false;
+  secondAngleSet.value = false;
+  thirdAngleSet.value = false;
+  canUploadPoint2CT.value = false;
+  
+  // 清除渲染器中的正方形显示
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
+    plyRenderer.value.showSquare(null);
+  }
+  
+  // 重置point2CTManager
+  point2CTManager.reset();
+};
+
+// 上传点2CT参数（自定义函数）
+const handleUploadPoint2CTParams = async () => {
+  if (!canUploadPoint2CT.value || !batchId) return;
+  
+  // 显示加载状态
+  isUploading.value = true;
+  uploadSuccess.value = null;
+  uploadMessage.value = '正在上传参数并生成模型...';
+  
+  try {
+    // 准备上传参数
+    const params = point2CTManager.getUploadData();
+    
+    console.log('上传点2CT参数:', params);
+    
+    // 调用上传接口
+    const response = await uploadPoint2CTParams(batchId, params);
+    
+    if (response && (response.plyUrl || response.plyData)) {
+      console.log('上传成功，获取到模型数据:', response);
+      
+      // 设置成功状态
+      uploadSuccess.value = true;
+      uploadMessage.value = '模型生成成功！正在加载...';
+      
+      // 处理并显示生成的PLY模型
+      if (renderer.value && plyRenderer) {
+        let plyUrl;
+        
+        if (response.plyUrl) {
+          // 如果返回的是URL，直接使用
+          plyUrl = response.plyUrl;
+        } else if (response.plyData) {
+          // 如果返回的是数据，转换为Blob URL
+          const plyBlob = new Blob([response.plyData], { type: 'text/plain' });
+          plyUrl = URL.createObjectURL(plyBlob);
+        }
+        
+        if (plyUrl) {
+          // 使用plyRenderer渲染模型，使用绿色显示面
+          await plyRenderer.renderPLY(plyUrl, '#00FF00');
+          
+          // 保存生成的PLY URL，以便后续使用或清理
+          generatedPlyUrl.value = plyUrl;
+          
+          uploadMessage.value = '模型已成功加载和显示！';
+          console.log('PLY模型渲染成功');
+        }
+      } else {
+        throw new Error('渲染器未初始化，无法显示模型');
+      }
+    } else {
+      throw new Error('上传失败，服务器未返回有效的PLY数据');
+    }
+  } catch (error) {
+    console.error('上传点2CT参数失败:', error);
+    uploadSuccess.value = false;
+    uploadMessage.value = `上传失败: ${error.message || '未知错误'}`;
+  } finally {
+    // 关闭加载状态
+    isUploading.value = false;
+    
+    // 5秒后自动清除上传消息
+    setTimeout(() => {
+      if (uploadMessage.value) {
+        uploadMessage.value = '';
+        uploadSuccess.value = null;
+      }
+    }, 5000);
+  }
+};
+
+// 清理生成的PLY资源
+const cleanupGeneratedPly = () => {
+  if (generatedPlyUrl.value) {
+    URL.revokeObjectURL(generatedPlyUrl.value);
+    generatedPlyUrl.value = null;
+    console.log('已清理生成的PLY资源');
+  }
 };
 
 // 导出所有函数和状态

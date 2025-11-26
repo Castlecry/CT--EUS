@@ -40,6 +40,65 @@ export const uploadDicomFiles = async (files) => {
 };
 
 /**
+ * 上传点2CT参数并获取生成的PLY模型
+ * @param {number} batchId - 批次ID
+ * @param {Object} pointParams - 点参数对象，包含选中点坐标、法向量、单位向量和旋转角度
+ * @param {Object} pointParams.point - 选中点的坐标 {x, y, z}
+ * @param {Object} pointParams.normal - 选中点的法向量 {x, y, z}
+ * @param {Object} pointParams.unitVector - 选中的单位向量 {x, y, z}
+ * @param {Object} pointParams.angles - 三个旋转角度 {angle1, angle2, angle3}
+ * @returns {Promise} 返回包含PLY数据URL的对象
+ */
+export const uploadPoint2CTParams = async (batchId, pointParams) => {
+  try {
+    // 参数校验
+    if (!batchId) {
+      throw new Error('参数错误：batchId不能为空');
+    }
+    if (!pointParams || !pointParams.point || !pointParams.unitVector) {
+      throw new Error('参数错误：缺少必要的点参数信息');
+    }
+    
+    console.log('上传点2CT参数 - batchId:', batchId);
+    console.log('上传点2CT参数 - 点参数:', pointParams);
+    
+    // 构造请求数据
+    const requestData = {
+      batchId: batchId.toString(),
+      point2CTParams: pointParams
+    };
+    
+    // 发送POST请求
+    const response = await apiClient.post('/point2ct/generate', requestData, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('获取点2CT PLY模型成功:', response.data);
+    
+    // 创建可直接使用的URL
+    const objectUrl = URL.createObjectURL(response.data);
+    console.log('点2CT PLY文件URL:', objectUrl);
+    
+    // 准备返回对象
+    const result = {
+      batchId: batchId.toString(),
+      data: objectUrl,
+      size: response.data.size
+    };
+    
+    return result;
+  } catch (error) {
+    console.error('上传点2CT参数失败:', error);
+    if (error.response) {
+      console.error('服务器响应:', error.response);
+    }
+    throw error;
+  }
+};
+
+/**
  * 处理DICOM文件（使用FormData形式传递batchId，与上传格式保持一致）
  * @param {number} batchId - 上传时返回的batchId
  * @returns {Promise} 返回处理结果
@@ -191,56 +250,63 @@ export const getOrganPlyModel = async (organName, batchId) => {
  * @param {Function} onPlyReceived - 处理每个接收到的PLY文件的回调函数
  * @returns {Promise} 返回处理结果
  */
+/**
+ * 上传轨迹点云为PLY文件并处理后端分批返回的PLY文件流
+ * @param {Blob} plyBlob - PLY文件Blob对象
+ * @param {string|number} batchId - 批次ID
+ * @param {number} plyBatchNo - PLY批次号，初始为1，每次画新线自增
+ * @param {Function} onPlyReceived - 处理每个接收到的PLY文件的回调函数
+ * @returns {Promise} 返回处理结果
+ */
 export const uploadTrajectoryPly = async (plyBlob, batchId, plyBatchNo, onPlyReceived) => {
   if (!plyBlob || !batchId || !plyBatchNo) {
     console.error('No PLY file or batchId or plyBatchNo provided');
     return Promise.reject(new Error('No PLY file or batchId or plyBatchNo provided'));
   }
-  
+  console.log('Uploading trajectory PLY file, batchId:', batchId, 'plyBatchNo:', plyBatchNo);
   try {
-    // 设置更长的超时时间，确保能接收所有PLY文件
-    const response = await apiClient.post('/eus/generate-video', {
-      trajectory: plyBlob,
-      batch_id: batchId,
-      ply_batch_no: plyBatchNo
-    }, {
+    // 创建FormData对象处理文件上传
+    const formData = new FormData();
+    formData.append('plyFile', plyBlob); // 修正：使用plyFile作为文件参数名
+    formData.append('batchId', batchId); // 后端期望的参数名
+    formData.append('plyBatchNo', plyBatchNo); // 后端期望的参数名
+    
+    // 设置更长的超时时间，确保能接收所有文件
+    const response = await apiClient.post('/eus/generate-video', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
       responseType: 'stream',
-      timeout: 600000 // 10分钟超时，确保有足够时间接收所有文件
+      timeout: 600000 // 10分钟超时
     });
     
     // 创建一个Promise来处理流式响应
     return new Promise((resolve, reject) => {
       const reader = response.data.getReader();
       const buffer = [];
-      let currentFile = null;
       let fileCount = 0;
       
       // 超时处理
       const timeoutId = setTimeout(() => {
         reject(new Error('接收PLY文件超时，请检查网络连接或后端服务'));
-      }, 600000); // 10分钟超时
+      }, 600000);
       
       reader.read().then(function processChunk({ done, value }) {
-        // 清除超时定时器
         clearTimeout(timeoutId);
         
         if (done) {
-          // 处理最后一个可能未处理的文件
+          // 处理最后一个文件
           if (buffer.length > 0) {
             processCurrentFile();
           }
           console.log(`所有PLY文件接收完成，共${fileCount}个文件`);
-          resolve({ status: 'completed', message: '所有PLY文件处理完成', fileCount: fileCount });
+          resolve({ status: 'completed', message: '所有PLY文件处理完成', fileCount });
           return;
         }
         
-        // 添加新数据到缓冲区
         buffer.push(value);
         
-        // 尝试将缓冲区内容转换为字符串以检查是否包含完整的PLY文件
+        // 检查缓冲区中是否包含完整的PLY文件
         const combinedBuffer = new Uint8Array(buffer.reduce((acc, val) => acc + val.byteLength, 0));
         let offset = 0;
         for (const chunk of buffer) {
@@ -251,54 +317,49 @@ export const uploadTrajectoryPly = async (plyBlob, batchId, plyBatchNo, onPlyRec
         const bufferString = String.fromCharCode.apply(null, combinedBuffer);
         const plyHeaderIndex = bufferString.indexOf('ply');
         
-        // 如果找到PLY文件头，并且不是在缓冲区的开始位置，说明前面可能有完整的PLY文件
+        // 如果找到新的PLY文件头，处理前面的完整文件
         if (plyHeaderIndex > 0) {
-          // 提取当前完整的PLY文件数据
           const completeFileData = combinedBuffer.slice(0, plyHeaderIndex);
           const remainingData = combinedBuffer.slice(plyHeaderIndex);
           
-          // 处理完整的PLY文件
           processPlyData(completeFileData);
           
-          // 更新缓冲区，只保留剩余的数据
+          // 更新缓冲区
           buffer.length = 0;
           buffer.push(remainingData.buffer);
         }
         
-        // 继续读取下一个数据块，设置适当的延迟确保不占用过多资源
+        // 继续读取下一个数据块
         setTimeout(() => {
           reader.read().then(processChunk).catch(error => {
             clearTimeout(timeoutId);
             reject(error);
           });
-        }, 50); // 短暂延迟，避免CPU占用过高
+        }, 50);
       }).catch(error => {
         clearTimeout(timeoutId);
         reject(error);
       });
       
-      // 处理完整的PLY文件数据
+      // 处理PLY文件数据
       function processPlyData(plyData) {
         const plyBlob = new Blob([plyData], { type: 'application/octet-stream' });
         parsePlyFile(plyBlob).then(parsedData => {
-          // 确保有5个点数据
           if (parsedData.points && parsedData.points.length >= 5) {
             const trajectoryData = {
-              targetPoint: parsedData.points[0], // 第一个点作为目标点
-              facePoints: parsedData.points.slice(1, 5) // 后四个点用于形成面
+              targetPoint: parsedData.points[0],
+              facePoints: parsedData.points.slice(1, 5)
             };
             
             fileCount++;
             console.log(`处理第${fileCount}个PLY文件，包含${parsedData.points.length}个点`);
             
-            // 调用回调函数处理解析后的数据
             if (typeof onPlyReceived === 'function') {
               onPlyReceived(trajectoryData);
             }
           }
         }).catch(error => {
           console.error('解析PLY文件失败:', error);
-          // 解析失败不中断整个流程，继续处理下一个文件
         });
       }
       
@@ -526,5 +587,6 @@ export default {
   getOrganPlyModel,
   uploadTrajectoryPly,
   getCalibrationTrajectoryPly,
-  getPlyFile
+  getPlyFile,
+  uploadPoint2CTParams
 };
