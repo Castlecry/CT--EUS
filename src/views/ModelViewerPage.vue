@@ -1264,8 +1264,8 @@ const togglePoint2CTMode = () => {
   
   if (isPoint2CTMode.value) {
     console.log('进入点2CT选点模式');
-    // 启用吸附功能
-    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 5);
+    // 启用吸附功能，将阈值从5增加到15
+    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
     // 重置选点状态
     resetPoint2CT();
   } else {
@@ -1309,10 +1309,13 @@ const selectUnitVector = (axis) => {
   point2CTManager.setUnitVector(unitVector);
   point2CTManager.generateSquare();
   
-  // 在渲染器中显示正方形
+  // 在渲染器中显示正方形，添加参数验证
   const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
-    plyRenderer.value.showSquare(squarePoints);
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function' && 
+      squarePoints && Array.isArray(squarePoints) && squarePoints.length === 4) {
+    plyRenderer.value.showSquare(squarePoints, { color: [0, 1, 1], lineWidth: 2 });
+  } else {
+    console.warn('无法显示正方形：无效的点数据或渲染器方法');
   }
 };
 
@@ -1320,13 +1323,17 @@ const selectUnitVector = (axis) => {
 const updateFirstAngle = () => {
   if (!selectedPoint.value || !selectedAxis.value) return;
   
+  // 确保角度在有效范围内
+  const angle = Math.max(0, Math.min(180, firstAngle.value || 0));
+  
   // 围绕法向量旋转
-  point2CTManager.rotateAroundNormal(firstAngle.value);
+  point2CTManager.rotateAroundNormal(angle);
   
   // 更新渲染器中的正方形显示
   const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
-    plyRenderer.value.showSquare(squarePoints);
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function' && 
+      squarePoints && Array.isArray(squarePoints) && squarePoints.length === 4) {
+    plyRenderer.value.showSquare(squarePoints, { color: [0, 1, 1], lineWidth: 2 });
   }
 };
 
@@ -1340,13 +1347,24 @@ const confirmFirstAngle = () => {
 const updateSecondAngle = () => {
   if (!firstAngleSet.value) return;
   
+  // 确保角度在有效范围内
+  const angle = Math.max(0, Math.min(180, secondAngle.value || 0));
+  
   // 围绕选择的轴向旋转
-  point2CTManager.rotateAroundUnitVector(secondAngle.value);
+  point2CTManager.rotateAroundUnitVector(angle);
   
   // 更新渲染器中的正方形显示
   const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
-    plyRenderer.value.showSquare(squarePoints);
+  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function' && 
+      squarePoints && Array.isArray(squarePoints) && squarePoints.length === 4) {
+    plyRenderer.value.showSquare(squarePoints, { color: [0, 1, 1], lineWidth: 2 });
+  }
+};
+
+// 清除旋转辅助显示
+const clearRotationVisuals = () => {
+  if (plyRenderer.value && typeof plyRenderer.value.clearSquare === 'function') {
+    plyRenderer.value.clearSquare();
   }
 };
 

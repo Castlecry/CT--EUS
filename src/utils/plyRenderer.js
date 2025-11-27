@@ -543,9 +543,14 @@ class PlyRenderer {
    * @param {MouseEvent} event - 鼠标事件
    */
   _onMouseDown(event) {
-    if (!this.isDrawing) return;
+    // 对于点2CT模式，检查snapEnabled而不仅是isDrawing
+    if (!this.isDrawing && !this.snapEnabled) return;
 
-    this.isDragging = true;
+    // 点2CT模式下不需要拖动状态
+    if (this.isDrawing) {
+      this.isDragging = true;
+    }
+    
     this._updateMousePosition(event);
     this._addPointAtMouse(event);
   }
@@ -627,16 +632,18 @@ class PlyRenderer {
     
     // 方法1: 尝试吸附到最近的点位
     if (this.snapEnabled && this.currentModel && this.pointsData.has(this.currentModel)) {
-      const closestPoint = this._findClosestPoint(this.mouse);
-      if (closestPoint) {
+      const closestPointInfo = this._findClosestPoint(this.mouse);
+      if (closestPointInfo && closestPointInfo.coordinate) {
         // 验证吸附点是否在摄像机可见方向
-        const directionToPoint = new THREE.Vector3().subVectors(closestPoint, this.camera.position).normalize();
+        const directionToPoint = new THREE.Vector3().subVectors(closestPointInfo.coordinate, this.camera.position).normalize();
         const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
         const forwardDot = directionToPoint.dot(cameraForward);
         
         // 严格检查：点必须在摄像机前方（与摄像机朝向夹角小于90度）且与射线方向高度一致
         if (dotProduct > 0.95 && forwardDot > 0) {
-          pointToAdd = closestPoint;
+          pointToAdd = closestPointInfo.coordinate;
+          // 保存点的法向量信息
+          this.currentPointNormal = closestPointInfo.normal;
           console.log('吸附到最近点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
         }
       }
@@ -703,9 +710,12 @@ class PlyRenderer {
         this.trajectoryPoints.push(pointToAdd.clone());
         this.snappedTrajectoryPoints.push(pointToAdd.clone());
         
-        // 调用吸附回调
+        // 调用吸附回调，传递包含坐标和法向量的完整对象
         if (this.snapCallback) {
-          this.snapCallback(pointToAdd);
+          this.snapCallback({
+            coordinate: pointToAdd,
+            normal: this.currentPointNormal || new THREE.Vector3(0, 1, 0) // 如果没有法向量，使用默认值
+          });
         }
       } else {
         console.log('忽略摄像机背面或视角不可见的点');
@@ -717,7 +727,7 @@ class PlyRenderer {
    * 查找最近的点位
    * @private
    * @param {THREE.Vector2} mouse - 鼠标位置
-   * @returns {THREE.Vector3|null} 最近的点或null
+   * @returns {Object|null} 包含点坐标和法向量的对象
    */
   _findClosestPoint(mouse) {
     if (!this.currentModel || !this.pointsData.has(this.currentModel)) return null;
@@ -729,13 +739,15 @@ class PlyRenderer {
     this.raycaster.setFromCamera(mouse, this.camera);
     
     let closestPoint = null;
+    let closestNormal = null;
     let minDistance = Infinity;
     
-    // 增加距离阈值，使吸附更容易触发
-    const distanceThreshold = 2.0; // 从1.0增加到2.0
+    // 使用设置的吸附阈值或默认值
+    const distanceThreshold = this.snapThreshold || 15.0; // 默认为15.0，使吸附更容易触发
     
     // 优化：限制检查的点数，当点数过多时只检查部分点
     const points = pointsData.points;
+    const normals = pointsData.normals || [];
     const maxCheckPoints = 1000; // 最多检查1000个点
     const checkEveryNth = points.length > maxCheckPoints ? Math.ceil(points.length / maxCheckPoints) : 1;
     
@@ -745,13 +757,24 @@ class PlyRenderer {
       if (distance < minDistance && distance < distanceThreshold) {
         minDistance = distance;
         closestPoint = point;
+        // 同时获取对应的法向量
+        if (normals[i]) {
+          closestNormal = normals[i];
+        }
       }
     }
 
     // 移除频繁的日志输出，减少性能开销
     // 仅在调试时使用：if (closestPoint) console.log(`找到距离射线${minDistance.toFixed(3)}的最近点`);
 
-    return closestPoint;
+    // 返回包含点坐标和法向量的对象
+    if (closestPoint) {
+      return {
+        coordinate: closestPoint,
+        normal: closestNormal || new THREE.Vector3(0, 1, 0) // 如果没有法向量，返回默认值
+      };
+    }
+    return null;
   }
 
   // 删除近距离点计算功能，以提高性能
@@ -1683,6 +1706,64 @@ class PlyRenderer {
    */
   getDrawingState() {
     return this.isDrawing;
+  }
+  
+  /**
+   * 显示正方形
+   * @param {Array<THREE.Vector3>} squarePoints - 正方形的四个顶点
+   * @param {Object} options - 显示选项
+   */
+  showSquare(squarePoints, options = {}) {
+    if (!this.scene || !squarePoints || squarePoints.length !== 4) {
+      console.error('无效的正方形点数据');
+      return;
+    }
+    
+    // 清除之前的正方形
+    this.clearSquare();
+    
+    const color = options.color || [0, 1, 1]; // 默认青色
+    const lineWidth = options.lineWidth || 2; // 默认线宽
+    
+    // 创建线条的顶点数组（包括闭合的线）
+    const points = [...squarePoints];
+    points.push(squarePoints[0]); // 闭合正方形
+    
+    // 创建线几何体
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    
+    // 创建线材质
+    const material = new THREE.LineBasicMaterial({
+      color: new THREE.Color(...color),
+      linewidth: lineWidth,
+      transparent: true,
+      opacity: 0.9
+    });
+    
+    // 创建线对象
+    this.squareObject = new THREE.LineLoop(geometry, material);
+    
+    // 添加到场景
+    this.scene.add(this.squareObject);
+    
+    console.log('显示正方形，顶点数:', squarePoints.length);
+    
+    // 强制渲染
+    this.render();
+  }
+  
+  /**
+   * 清除正方形显示
+   */
+  clearSquare() {
+    if (this.squareObject && this.scene) {
+      this.scene.remove(this.squareObject);
+      this.squareObject.geometry.dispose();
+      this.squareObject.material.dispose();
+      this.squareObject = null;
+      console.log('已清除正方形显示');
+      this.render();
+    }
   }
 
   /**
