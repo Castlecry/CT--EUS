@@ -40,14 +40,10 @@ export const uploadDicomFiles = async (files) => {
 };
 
 /**
- * 上传点2CT参数并获取生成的PLY模型
+ * 上传点2CT参数并获取生成的ZIP文件（包含PLY和PNG图片）
  * @param {number} batchId - 批次ID
- * @param {Object} pointParams - 点参数对象，包含选中点坐标、法向量、单位向量和旋转角度
- * @param {Object} pointParams.point - 选中点的坐标 {x, y, z}
- * @param {Object} pointParams.normal - 选中点的法向量 {x, y, z}
- * @param {Object} pointParams.unitVector - 选中的单位向量 {x, y, z}
- * @param {Object} pointParams.angles - 三个旋转角度 {angle1, angle2, angle3}
- * @returns {Promise} 返回包含PLY数据URL的对象
+ * @param {Object} pointParams - 点参数对象，包含选中点坐标、法向量、轴向和旋转角度
+ * @returns {Promise} 返回包含解压后文件信息的对象
  */
 export const uploadPoint2CTParams = async (batchId, pointParams) => {
   try {
@@ -55,8 +51,8 @@ export const uploadPoint2CTParams = async (batchId, pointParams) => {
     if (!batchId) {
       throw new Error('参数错误：batchId不能为空');
     }
-    if (!pointParams || !pointParams.point || !pointParams.unitVector) {
-      throw new Error('参数错误：缺少必要的点参数信息');
+    if (!pointParams) {
+      throw new Error('参数错误：点参数不能为空');
     }
     
     console.log('上传点2CT参数 - batchId:', batchId);
@@ -65,30 +61,27 @@ export const uploadPoint2CTParams = async (batchId, pointParams) => {
     // 构造请求数据
     const requestData = {
       batchId: batchId.toString(),
-      point2CTParams: pointParams
+      ...pointParams // 直接传递所有参数，不再包装在point2CTParams中
     };
     
-    // 发送POST请求
+    // 发送POST请求，期望后端返回ZIP文件
     const response = await apiClient.post('/point2ct/generate', requestData, {
       headers: {
         'Content-Type': 'application/json'
-      }
+      },
+      responseType: 'blob' // 确保以二进制形式接收ZIP文件
     });
     
-    console.log('获取点2CT PLY模型成功:', response.data);
+    console.log('获取点2CT ZIP文件成功，大小:', response.data.size, '字节');
     
-    // 创建可直接使用的URL
-    const objectUrl = URL.createObjectURL(response.data);
-    console.log('点2CT PLY文件URL:', objectUrl);
+    // 解压ZIP文件并处理其中的PLY和PNG文件
+    const extractedFiles = await extractFilesFromZip(response.data);
     
-    // 准备返回对象
-    const result = {
+    return {
       batchId: batchId.toString(),
-      data: objectUrl,
-      size: response.data.size
+      zipSize: response.data.size,
+      extractedFiles: extractedFiles
     };
-    
-    return result;
   } catch (error) {
     console.error('上传点2CT参数失败:', error);
     if (error.response) {
@@ -97,6 +90,96 @@ export const uploadPoint2CTParams = async (batchId, pointParams) => {
     throw error;
   }
 };
+
+/**
+ * 从ZIP文件中解压并提取PLY和PNG文件
+ * @param {Blob} zipBlob - ZIP文件Blob对象
+ * @returns {Promise<Object>} 返回包含PLY和PNG文件信息的对象
+ */
+async function extractFilesFromZip(zipBlob) {
+  // 由于浏览器环境中没有内置的ZIP解压功能，我们需要使用JSZip库
+  // 但首先检查JSZip是否已加载
+  let JSZip;
+  try {
+    // 尝试动态导入JSZip
+    const module = await import('jszip');
+    JSZip = module.default;
+  } catch (error) {
+    console.error('无法加载JSZip库，尝试使用备用方法处理ZIP文件:', error);
+    
+    // 如果没有JSZip库，我们将创建一个临时URL并返回
+    // 这需要前端手动处理或显示错误
+    const zipUrl = URL.createObjectURL(zipBlob);
+    return {
+      hasError: true,
+      errorMessage: '缺少ZIP解压库，请安装jszip包',
+      zipUrl: zipUrl,
+      plyFiles: [],
+      pngFiles: []
+    };
+  }
+  
+  try {
+    const zip = new JSZip();
+    const zipContent = await zip.loadAsync(zipBlob);
+    
+    const plyFiles = [];
+    const pngFiles = [];
+    
+    // 遍历ZIP中的所有文件
+    for (const [fileName, zipEntry] of Object.entries(zipContent.files)) {
+      console.log('处理ZIP中的文件:', fileName);
+      
+      if (!zipEntry.dir) { // 只处理文件，不处理目录
+        // 获取文件内容
+        const content = await zipEntry.async('blob');
+        const fileUrl = URL.createObjectURL(content);
+        
+        // 根据文件扩展名分类
+        if (fileName.toLowerCase().endsWith('.ply')) {
+          plyFiles.push({
+            name: fileName,
+            url: fileUrl,
+            size: content.size,
+            type: 'application/octet-stream'
+          });
+          console.log('找到PLY文件:', fileName);
+        } else if (fileName.toLowerCase().endsWith('.png')) {
+          pngFiles.push({
+            name: fileName,
+            url: fileUrl,
+            size: content.size,
+            type: 'image/png'
+          });
+          console.log('找到PNG文件:', fileName);
+        }
+      }
+    }
+    
+    // 按文件名排序，确保图片按顺序显示
+    pngFiles.sort((a, b) => a.name.localeCompare(b.name));
+    
+    return {
+      hasError: false,
+      plyFiles: plyFiles,
+      pngFiles: pngFiles,
+      totalFiles: plyFiles.length + pngFiles.length
+    };
+  } catch (error) {
+    console.error('解压ZIP文件失败:', error);
+    
+    // 创建ZIP文件的URL作为备用
+    const zipUrl = URL.createObjectURL(zipBlob);
+    
+    return {
+      hasError: true,
+      errorMessage: '解压ZIP文件失败: ' + error.message,
+      zipUrl: zipUrl,
+      plyFiles: [],
+      pngFiles: []
+    };
+  }
+}
 
 /**
  * 处理DICOM文件（使用FormData形式传递batchId，与上传格式保持一致）
@@ -363,10 +446,11 @@ async function parsePlyFile(plyBlob) {
 }
 
 /**
- * 获取校准轨迹的PLY文件
+ * 获取校准轨迹PLY模型 - 支持接收后端返回的多个PLY文件
+ * 后端应该返回格式：[{"base64": "base64编码的ply文件内容"}, ...]
  * @param {string|number} batchId - 批次ID
- * @param {number} plyBatchNo - PLY批次号，初始为1，每次画新线自增
- * @returns {Promise} 返回校准轨迹的PLY模型数据
+ * @param {number} plyBatchNo - PLY批次号，默认值为1
+ * @returns {Promise} 返回包含多个轨迹点和正方形面的轨迹数据数组
  */
 export const getCalibrationTrajectoryPly = async (batchId, plyBatchNo = 1) => {
   console.log('getCalibrationTrajectoryPly函数开始执行，batchId:', batchId, 'plyBatchNo:', plyBatchNo);
@@ -388,30 +472,107 @@ export const getCalibrationTrajectoryPly = async (batchId, plyBatchNo = 1) => {
     console.log('getCalibrationTrajectoryPly 请求URL:', url);
 
     console.log('getCalibrationTrajectoryPly: 准备发送请求');
+    
+    // 发送请求获取轨迹点和正方形面数据
+    // 设置响应类型为json，因为我们期望后端返回JSON格式的数据，包含多个PLY文件信息
     const response = await apiClient.get('/eus/calibration-trajectory', {
       params: {
         batchId: batchIdStr,
         plyBatchNo: batchNoStr
       },
-      responseType: 'blob'
+      responseType: 'json'
     });
 
-    console.log('getCalibrationTrajectoryPly: 请求成功，response.data类型:', typeof response.data);
-    console.log('getCalibrationTrajectoryPly: response.data是否为Blob:', response.data instanceof Blob);
+    console.log('getCalibrationTrajectoryPly: 请求成功，接收到响应数据');
     
-    // 创建可直接使用的URL
-    const objectUrl = URL.createObjectURL(response.data);
-    console.log('校准轨迹PLY模型URL:', objectUrl);
+    // 期望后端返回格式：[{"base64": "base64编码的ply文件内容"}, ...]
+    // 解析后端返回的数据
+    let trajectoryData = [];
     
-    // 准备返回对象
+    // 情况1：后端返回的是包含多个PLY文件信息的数组
+    if (Array.isArray(response.data)) {
+      console.log(`后端返回了${response.data.length}个PLY文件数据`);
+      
+      // 处理每个PLY文件
+      trajectoryData = await Promise.all(response.data.map(async (plyItem, index) => {
+        try {
+          // 确保每个项目都有base64字段
+          if (plyItem && plyItem.base64) {
+            console.log(`处理索引${index}的PLY文件数据`);
+            
+            // 解码base64数据并创建Blob
+            const binaryString = atob(plyItem.base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // 创建Blob对象和URL
+            const blob = new Blob([bytes], { type: 'application/octet-stream' });
+            const objectUrl = URL.createObjectURL(blob);
+            
+            // 返回标准格式的数据对象
+            return {
+              id: `trajectory_point_${index}`,
+              dataUrl: objectUrl,
+              size: blob.size,
+              plyBatchNo: index + 1,
+              timestamp: new Date().toISOString()
+            };
+          } else {
+            console.warn(`索引${index}的PLY文件数据缺少base64字段`);
+            return null;
+          }
+        } catch (error) {
+          console.error(`处理索引${index}的PLY文件时出错:`, error);
+          return null;
+        }
+      }));
+    } 
+    // 情况2：后端返回的是单个PLY文件信息
+    else if (response.data && response.data.base64) {
+      console.log('后端返回了单个PLY文件数据');
+      
+      try {
+        // 解码base64数据并创建Blob
+        const binaryString = atob(response.data.base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        // 创建Blob对象和URL
+        const blob = new Blob([bytes], { type: 'application/octet-stream' });
+        const objectUrl = URL.createObjectURL(blob);
+        
+        trajectoryData = [{
+          id: 'trajectory_point_0',
+          dataUrl: objectUrl,
+          size: blob.size,
+          plyBatchNo: 1,
+          timestamp: new Date().toISOString()
+        }];
+      } catch (error) {
+        console.error('处理单个PLY文件时出错:', error);
+        trajectoryData = [];
+      }
+    }
+    
+    // 过滤掉无效数据
+    const validTrajectoryData = trajectoryData.filter(Boolean);
+    console.log(`成功处理了${validTrajectoryData.length}个PLY文件数据`);
+    
+    // 返回标准格式的结果对象
     const result = {
       batchId: batchIdStr,
       plyBatchNo: batchNoStr,
-      data: objectUrl,
-      size: response.data.size
+      trajectoryData: validTrajectoryData,
+      totalFiles: validTrajectoryData.length
     };
-    console.log('getCalibrationTrajectoryPly: 返回结果:', result);
     
+    console.log('getCalibrationTrajectoryPly: 最终返回结果:', result);
     return result;
   } catch (error) {
     console.error(`获取校准轨迹PLY模型失败（batchId: ${batchId}, plyBatchNo: ${plyBatchNo}）:`, error);

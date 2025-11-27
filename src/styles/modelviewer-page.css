@@ -174,9 +174,18 @@ header {
 .organ-buttons-container {
   overflow: hidden;
   transition: max-height 0.35s ease-in-out;
+  display: flex;
+  flex-direction: column;
 }
 
-.organ-buttons { display: flex; flex-wrap: wrap; gap: 12px; padding: 20px 0 10px; }
+/* 器官按钮区域 - 确保在顶部显示 */
+.organ-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 15px 0 10px;
+  order: 1; /* 确保在顶部 */
+}
 .organ-btn {
   flex: 1 1 auto;
   min-width: 110px;
@@ -188,7 +197,15 @@ header {
 .organ-btn.loaded { background-color: #e8f5e9; border-color: #c3e6cb; color: #155724; font-weight: 500; }
 .organ-btn:disabled { cursor: not-allowed; opacity: 0.7; }
 
-.organ-panel-footer { display: flex; justify-content: center; padding-top: 20px; border-top: 1px solid #f1f2f6; }
+/* 底部按钮区域 - 现在直接位于器官按钮下方 */
+.organ-panel-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 20px;
+  border-top: 1px solid #f1f2f6;
+  order: 2; /* 确保在器官按钮之后 */
+  /* 移除margin-top: auto，让按钮直接跟在器官按钮下面 */
+}
 .load-all-btn { background-color: #4a90e2; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 0.95rem; transition: background-color 0.2s; }
 .load-all-btn:hover:not(:disabled) { background-color: #357abd; }
 .load-all-btn:disabled { background-color: #6c757d; cursor: not-allowed; opacity: 0.8; }
@@ -1402,6 +1419,79 @@ detail-row {
 .reset-point2ct-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 渲染图片样式 */
+.render-image-container {
+  margin: 15px 0;
+  padding: 15px;
+  background-color: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
+.render-image-header {
+  margin-bottom: 10px;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 8px;
+}
+
+.render-image-header h5 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
+}
+
+.render-image-wrapper {
+  margin: 10px 0;
+  text-align: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background-color: #fff;
+  padding: 10px;
+}
+
+.render-image {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.render-image-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.download-btn, .close-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.download-btn {
+  background-color: #2196F3;
+  color: white;
+}
+
+.download-btn:hover {
+  background-color: #1976D2;
+}
+
+.close-btn {
+  background-color: #f0f0f0;
+  color: #333;
+  border: 1px solid #ddd;
+}
+
+.close-btn:hover {
+  background-color: #e0e0e0;
 }
 
 /* 重置颜色按钮样式 */

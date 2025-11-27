@@ -1128,47 +1128,217 @@ class PlyRenderer {
   }
 
   /**
-   * 显示校准轨迹，按照指定间隔连接点
-   * @param {string} dataUrl - PLY文件的URL
+   * 显示校准轨迹，连接所有轨迹点并为每个点渲染正方形面
+   * @param {Array|string} trajectoryData - 轨迹数据，可以是包含多个轨迹点和正方形面的数组，或者单个PLY文件的URL
    * @param {Object} options - 配置选项
-   * @param {number} options.interval - 点连接间隔（秒）
    * @param {number} options.color - 轨迹颜色
+   * @param {number} options.faceColor - 正方形面颜色
    */
-  async showCalibrationTrajectory(dataUrl, options = {}) {
-    console.log('showCalibrationTrajectory方法被调用:', { dataUrl, options });
+  async showCalibrationTrajectory(trajectoryData, options = {}) {
+    // 支持处理后端返回的JSON格式数据：[{"base64": "base64编码的ply文件内容"}, ...]
+    // 每个PLY文件包含1个轨迹点和4个正方形面顶点
+    console.log('showCalibrationTrajectory方法被调用:', { trajectoryData: Array.isArray(trajectoryData) ? trajectoryData.length + '个元素' : trajectoryData, options });
     
     // 先隐藏当前校准轨迹
     this.hideCalibrationTrajectory();
     
     try {
-      // 解析PLY文件
-      const response = await fetch(dataUrl);
-      const text = await response.text();
+      // 存储轨迹点和正方形面
+      const allTrajectoryPoints = [];
+      const facePointsGroups = [];
       
-      // 解析PLY文件中的点坐标
-      const points = this._parsePlyPoints(text);
-      console.log('解析到的校准轨迹点数量:', points.length);
+      // 处理不同类型的输入数据
+      if (typeof trajectoryData === 'string') {
+        // 如果是单个URL，假设是包含多个点的PLY文件
+        const response = await fetch(trajectoryData);
+        const text = await response.text();
+        
+        // 解析PLY文件中的点坐标
+        const points = this._parsePlyPoints(text);
+        console.log('解析到的校准轨迹点数量:', points.length);
+        
+        // 按照用户描述的逻辑处理：每5个点一组，第一个是轨迹点，后4个是正方形面
+        for (let i = 0; i < points.length; i += 5) {
+          if (i + 4 < points.length) {
+            allTrajectoryPoints.push(points[i]); // 轨迹点
+            facePointsGroups.push([points[i+1], points[i+2], points[i+3], points[i+4]]); // 正方形面的四个点
+          }
+        }
+      } else if (Array.isArray(trajectoryData)) {
+        console.log(`处理包含${trajectoryData.length}个元素的轨迹数据数组`);
+        // 如果是轨迹点数组，直接处理每个点
+        for (let index = 0; index < trajectoryData.length; index++) {
+          const pointData = trajectoryData[index];
+          if (pointData.dataUrl) {
+            // 如果包含dataUrl，获取并解析该URL
+            try {
+              console.log(`处理第${index + 1}个轨迹数据项（包含dataUrl）`);
+              const response = await fetch(pointData.dataUrl);
+              const text = await response.text();
+              const points = this._parsePlyPoints(text);
+              
+              console.log(`解析到的点数量: ${points.length}`);
+              
+              // 提取轨迹点（第一个点）和正方形面（后四个点）
+              if (points.length >= 5) {
+                allTrajectoryPoints.push(points[0]);
+                facePointsGroups.push([points[1], points[2], points[3], points[4]]);
+                console.log(`成功添加轨迹点和正方形面，累计: ${allTrajectoryPoints.length}`);
+              } else if (points.length > 0) {
+                console.warn(`点数量不足，期望5个点，实际${points.length}个点`);
+              }
+            } catch (itemError) {
+              console.error(`处理第${index + 1}个轨迹数据项时出错:`, itemError);
+              // 继续处理下一个数据，不中断整个流程
+            }
+          } else if (pointData.targetPoint && pointData.facePoints) {
+            // 如果直接包含targetPoint和facePoints
+            allTrajectoryPoints.push(pointData.targetPoint);
+            facePointsGroups.push(pointData.facePoints);
+          } else if (pointData.base64) {
+            // 直接处理base64数据（后端返回格式）
+            try {
+              console.log(`处理第${index + 1}个轨迹数据项（包含base64）`);
+              // 解码base64数据
+              const binaryString = atob(pointData.base64);
+              const len = binaryString.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              
+              // 创建Blob并转换为文本
+              const blob = new Blob([bytes], { type: 'text/plain' });
+              const text = await blob.text();
+              const points = this._parsePlyPoints(text);
+              
+              console.log(`解析到的点数量: ${points.length}`);
+              
+              // 提取轨迹点（第一个点）和正方形面（后四个点）
+              if (points.length >= 5) {
+                allTrajectoryPoints.push(points[0]);
+                facePointsGroups.push([points[1], points[2], points[3], points[4]]);
+                console.log(`成功添加轨迹点和正方形面，累计: ${allTrajectoryPoints.length}`);
+              }
+            } catch (itemError) {
+              console.error(`处理第${index + 1}个base64数据时出错:`, itemError);
+              // 继续处理下一个数据，不中断整个流程
+            }
+          }
+        }
+      }
       
-      if (points.length === 0) {
-        console.warn('PLY文件中没有找到有效的点数据');
+      console.log('处理后的轨迹点数量:', allTrajectoryPoints.length);
+      console.log('处理后的正方形面数量:', facePointsGroups.length);
+      
+      if (allTrajectoryPoints.length === 0) {
+        console.warn('没有找到有效的轨迹点数据');
         return;
       }
       
       // 使用指定颜色或默认颜色
-      const color = options.color || 0xFF0000;
+      const trajectoryColor = options.color || 0xFF0000; // 轨迹线颜色
+      const faceColor = options.faceColor || 0x00FF00;   // 正方形面颜色
       
-      // 创建按间隔连接的线段
-      this._createIntervalSegments(points, options.interval || 0.5, color);
+      // 1. 渲染轨迹线：连接所有轨迹点
+      this._renderTrajectoryLine(allTrajectoryPoints, trajectoryColor);
+      
+      // 2. 为每个轨迹点渲染正方形面
+      for (let i = 0; i < allTrajectoryPoints.length && i < facePointsGroups.length; i++) {
+        this._renderSquareFace(allTrajectoryPoints[i], facePointsGroups[i], faceColor);
+      }
       
       // 渲染场景
-        this.modelRenderer.render();
+      this.modelRenderer.render();
       
-      console.log('校准轨迹显示成功');
+      console.log('校准轨迹和正方形面显示成功');
       return true;
     } catch (error) {
       console.error('显示校准轨迹失败:', error);
       throw error;
     }
+  }
+  
+  /**
+   * 渲染轨迹线
+   * @private
+   * @param {Array} points - 轨迹点数组
+   * @param {number} color - 轨迹线颜色
+   */
+  _renderTrajectoryLine(points, color) {
+    if (!points || points.length < 2) return;
+    
+    // 创建线段材质
+    const material = new THREE.LineBasicMaterial({
+      color: color,
+      linewidth: 3
+    });
+    
+    // 创建几何体
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(points.length * 3);
+    
+    for (let i = 0; i < points.length; i++) {
+      positions[i * 3] = points[i].x;
+      positions[i * 3 + 1] = points[i].y;
+      positions[i * 3 + 2] = points[i].z;
+    }
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // 创建线段对象
+    const line = new THREE.Line(geometry, material);
+    this.scene.add(line);
+    
+    // 保存到currentCalibrationTrajectory数组
+    if (!this.currentCalibrationTrajectory) {
+      this.currentCalibrationTrajectory = [];
+    }
+    this.currentCalibrationTrajectory.push(line);
+  }
+  
+  /**
+   * 渲染正方形面
+   * @private
+   * @param {Object} targetPoint - 轨迹点
+   * @param {Array} facePoints - 正方形面的四个顶点
+   * @param {number} color - 正方形面颜色
+   */
+  _renderSquareFace(targetPoint, facePoints, color) {
+    if (!facePoints || facePoints.length !== 4) return;
+    
+    // 创建面材质
+    const material = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide
+    });
+    
+    // 创建几何体
+    const geometry = new THREE.BufferGeometry();
+    
+    // 创建顶点数组（正方形面需要6个顶点来形成两个三角形）
+    const positions = new Float32Array([
+      facePoints[0].x, facePoints[0].y, facePoints[0].z,
+      facePoints[1].x, facePoints[1].y, facePoints[1].z,
+      facePoints[2].x, facePoints[2].y, facePoints[2].z,
+      facePoints[0].x, facePoints[0].y, facePoints[0].z,
+      facePoints[2].x, facePoints[2].y, facePoints[2].z,
+      facePoints[3].x, facePoints[3].y, facePoints[3].z
+    ]);
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // 创建面网格
+    const faceMesh = new THREE.Mesh(geometry, material);
+    this.scene.add(faceMesh);
+    
+    // 保存到currentCalibrationTrajectory数组
+    if (!this.currentCalibrationTrajectory) {
+      this.currentCalibrationTrajectory = [];
+    }
+    this.currentCalibrationTrajectory.push(faceMesh);
   }
   
   /**

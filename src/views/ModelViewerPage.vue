@@ -45,6 +45,7 @@
             class="organ-buttons-container"
             :style="{ maxHeight: isPanelExpanded ? 'none' : '0px' }"
           >
+            <!-- 器官按钮区域移到顶部 -->
             <div class="organ-buttons">
               <button
                 v-for="(organ, key) in organList"
@@ -60,6 +61,7 @@
                 {{ organ }}
               </button>
             </div>
+            <!-- 全部加载按钮保持在底部 -->
             <div class="organ-panel-footer">
               <button
                 class="load-all-btn"
@@ -511,6 +513,24 @@
                           </div>
                         </div>
                         
+                        <!-- 渲染图片显示区域 -->
+                        <div v-if="renderImageUrl" class="render-image-container">
+                          <div class="render-image-header">
+                            <h5>渲染图片</h5>
+                          </div>
+                          <div class="render-image-wrapper">
+                            <img :src="renderImageUrl" class="render-image" alt="渲染图片" />
+                          </div>
+                          <div class="render-image-actions">
+                            <button @click="downloadRenderImage" class="download-btn">
+                              下载图片
+                            </button>
+                            <button @click="closeRenderImage" class="close-btn">
+                              关闭
+                            </button>
+                          </div>
+                        </div>
+                        
                         <button 
                           class="upload-point2ct-btn primary" 
                           @click="handleUploadPoint2CTParams"
@@ -676,6 +696,32 @@ const renderer = ref(null);
 const rendererReady = ref(false);
 const loadedOrgans = ref([]);
 const loading = ref({});
+const renderImageUrl = ref(null);
+const renderImageName = ref('');
+
+// 显示渲染图片
+const displayRenderImage = (imageUrl, fileName) => {
+  renderImageUrl.value = imageUrl;
+  renderImageName.value = fileName;
+};
+
+// 下载渲染图片
+const downloadRenderImage = () => {
+  if (renderImageUrl.value) {
+    const link = document.createElement('a');
+    link.href = renderImageUrl.value;
+    link.download = renderImageName.value || 'render_image.png';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
+// 关闭渲染图片
+const closeRenderImage = () => {
+  renderImageUrl.value = null;
+  renderImageName.value = '';
+};
 const loadingAll = ref(false);
 const allLoaded = ref(false);
 const isPanelExpanded = ref(true); // 控制面板展开/收起状态
@@ -1374,8 +1420,8 @@ const handleUploadPoint2CTParams = async () => {
     // 调用上传接口
     const response = await uploadPoint2CTParams(batchId, params);
     
-    if (response && (response.plyUrl || response.plyData)) {
-      console.log('上传成功，获取到模型数据:', response);
+    if (response && response.files) {
+      console.log('上传成功，获取到ZIP解压文件:', response);
       
       // 设置成功状态
       uploadSuccess.value = true;
@@ -1383,32 +1429,34 @@ const handleUploadPoint2CTParams = async () => {
       
       // 处理并显示生成的PLY模型
       if (renderer.value && plyRenderer) {
-        let plyUrl;
+        // 查找PLY文件
+        const plyFile = response.files.find(file => file.name.endsWith('.ply'));
         
-        if (response.plyUrl) {
-          // 如果返回的是URL，直接使用
-          plyUrl = response.plyUrl;
-        } else if (response.plyData) {
-          // 如果返回的是数据，转换为Blob URL
-          const plyBlob = new Blob([response.plyData], { type: 'text/plain' });
-          plyUrl = URL.createObjectURL(plyBlob);
-        }
-        
-        if (plyUrl) {
+        if (plyFile && plyFile.blobUrl) {
           // 使用plyRenderer渲染模型，使用绿色显示面
-          await plyRenderer.renderPLY(plyUrl, '#00FF00');
+          await plyRenderer.renderPLY(plyFile.blobUrl, '#00FF00');
           
           // 保存生成的PLY URL，以便后续使用或清理
-          generatedPlyUrl.value = plyUrl;
+          generatedPlyUrl.value = plyFile.blobUrl;
+          
+          // 查找PNG文件（渲染图片）
+          const pngFile = response.files.find(file => file.name.endsWith('.png'));
+          if (pngFile && pngFile.blobUrl) {
+            console.log('找到渲染图片:', pngFile.name);
+            // 显示PNG渲染图片
+            displayRenderImage(pngFile.blobUrl, pngFile.name);
+          }
           
           uploadMessage.value = '模型已成功加载和显示！';
           console.log('PLY模型渲染成功');
+        } else {
+          throw new Error('ZIP文件中未包含有效的PLY模型文件');
         }
       } else {
         throw new Error('渲染器未初始化，无法显示模型');
       }
     } else {
-      throw new Error('上传失败，服务器未返回有效的PLY数据');
+      throw new Error('上传失败，服务器未返回有效的文件数据');
     }
   } catch (error) {
     console.error('上传点2CT参数失败:', error);
@@ -1768,18 +1816,27 @@ const uploadTrajectory = async (trajectoryId) => {
       console.log('尝试获取校准轨迹');
       const calibrationResult = await getCalibrationTrajectoryPly(batchId, trajectory.plyBatchNo - 1);
       
-      // 将校准轨迹添加到记录中
-      const calibrationItem = {
-        id: `calibration_${Date.now()}`,
-        name: `校准轨迹_${trajectory.name}`,
-        color: Math.floor(Math.random()*16777215), // 随机颜色
-        batchId: batchId,
-        dataUrl: calibrationResult.data,
-        timestamp: new Date().toISOString()
-      };
-      
-      calibrationTrajectory.value.push(calibrationItem);
-      console.log('校准轨迹已添加到记录:', calibrationItem);
+      // 检查返回结果中是否包含trajectoryData数组
+      if (calibrationResult.trajectoryData && Array.isArray(calibrationResult.trajectoryData)) {
+        console.log('获取到的轨迹点数量:', calibrationResult.trajectoryData.length);
+        
+        // 将校准轨迹添加到记录中
+        const calibrationItem = {
+          id: `calibration_${Date.now()}`,
+          name: `校准轨迹_${trajectory.name}`,
+          color: Math.floor(Math.random()*16777215), // 随机颜色
+          batchId: batchId,
+          plyBatchNo: calibrationResult.plyBatchNo,
+          // 存储所有轨迹点和正方形面的数据
+          trajectoryPoints: calibrationResult.trajectoryData,
+          timestamp: new Date().toISOString()
+        };
+        
+        calibrationTrajectory.value.push(calibrationItem);
+        console.log('校准轨迹已添加到记录:', calibrationItem);
+      } else {
+        console.error('校准轨迹数据格式错误，未找到trajectoryData数组');
+      }
     } catch (calibrationError) {
       console.warn('获取校准轨迹失败，但不影响上传结果:', calibrationError);
     }
@@ -1799,6 +1856,11 @@ const toggleCalibrationTrajectory = () => {
 };
 
 // 显示校准轨迹
+/**
+ * 显示校准轨迹和正方形面
+ * 后端返回格式应为 [{"base64": "base64编码的ply文件内容"}, ...]
+ * 每个PLY文件包含1个轨迹点和4个正方形面顶点
+ */
 const displayCalibrationTrajectory = async (trajectoryId) => {
   if (!plyRenderer.value || isDrawingMode.value) return;
   
@@ -1810,21 +1872,29 @@ const displayCalibrationTrajectory = async (trajectoryId) => {
     
     // 查找校准轨迹
     const trajectory = calibrationTrajectory.value.find(t => t.id === trajectoryId);
-    if (!trajectory || !trajectory.dataUrl) {
+    if (!trajectory) {
       console.error('校准轨迹数据无效');
       return;
     }
     
     loadingCalibration.value = true;
     
-    // 使用PlyRenderer显示校准轨迹，按照0.5秒间隔连接点
+    // 使用PlyRenderer显示校准轨迹和正方形面
     if (typeof plyRenderer.value.showCalibrationTrajectory === 'function') {
-      await plyRenderer.value.showCalibrationTrajectory(trajectory.dataUrl, {
-        interval: 0.5, // 0.5秒间隔连接点
-        color: trajectory.color
+      // 优先使用trajectoryPoints（包含多个轨迹点和正方形面数据）
+      // trajectoryPoints是处理后的包含dataUrl的数组，格式为[{id, dataUrl, size, ...}, ...]
+      const trajectoryData = trajectory.trajectoryPoints || trajectory.dataUrl;
+      
+      console.log(`准备显示${Array.isArray(trajectoryData) ? trajectoryData.length : 1}个轨迹点和正方形面`);
+      
+      // 确保faceColor是对象格式
+      await plyRenderer.value.showCalibrationTrajectory(trajectoryData, {
+        color: trajectory.color,
+        faceColor: { color: 0x00FF00, opacity: 0.3 } // 半透明绿色正方形面
       });
+      
       currentDisplayedCalibrationId.value = trajectoryId;
-      console.log('校准轨迹已显示:', trajectoryId);
+      console.log('校准轨迹和正方形面已显示:', trajectoryId);
     } else {
       console.warn('PlyRenderer没有showCalibrationTrajectory方法');
     }
