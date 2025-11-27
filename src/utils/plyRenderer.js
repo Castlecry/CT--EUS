@@ -477,19 +477,29 @@ class PlyRenderer {
   _startDrawing() {
     // 绑定鼠标事件
     if (this.renderer && this.renderer.domElement) {
+      // 先解绑再绑定，避免重复绑定
+      this._unbindEventHandlers();
       this.renderer.domElement.addEventListener('mousedown', this._handleMouseDown);
       this.renderer.domElement.addEventListener('mousemove', this._handleMouseMove);
       this.renderer.domElement.addEventListener('mouseup', this._handleMouseUp);
       this.renderer.domElement.addEventListener('mouseleave', this._handleMouseLeave);
+      console.log('绘制模式鼠标事件已绑定');
     }
 
     // 初始化轨迹数据
     this.trajectoryPoints = [];
     this.snappedTrajectoryPoints = [];
 
-    // 设置鼠标样式
+    // 加强鼠标样式设置，确保它能够正确应用
     if (this.renderer && this.renderer.domElement) {
-      this.renderer.domElement.style.cursor = 'crosshair';
+      // 使用!important确保样式优先级
+      this.renderer.domElement.style.cursor = 'crosshair !important';
+      // 同时设置整个容器的鼠标样式
+      const container = this.renderer.domElement.parentElement;
+      if (container) {
+        container.style.cursor = 'crosshair !important';
+      }
+      console.log('十字光标样式已应用');
     }
 
     // 禁用控制器，固定模型
@@ -509,6 +519,7 @@ class PlyRenderer {
     
     // 解绑鼠标事件
     this._unbindEventHandlers();
+    console.log('绘制模式鼠标事件已解绑');
 
     // 保存当前绘制的轨迹
     if (this.snappedTrajectoryPoints.length > 1) {
@@ -524,7 +535,14 @@ class PlyRenderer {
     // 恢复鼠标样式
     if (this.renderer && this.renderer.domElement) {
       this.renderer.domElement.style.cursor = 'default';
+      // 同时恢复容器的鼠标样式
+      const container = this.renderer.domElement.parentElement;
+      if (container) {
+        container.style.cursor = 'default';
+      }
+      console.log('鼠标样式已恢复为默认值');
     }
+  }
 
     // 重新启用控制器
     if (this.controls) {
@@ -634,10 +652,15 @@ class PlyRenderer {
         const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
         const forwardDot = directionToPoint.dot(cameraForward);
         
-        // 严格检查：点必须在摄像机前方（与摄像机朝向夹角小于90度）且与射线方向高度一致
-        if (dotProduct > 0.95 && forwardDot > 0) {
+        // 放宽吸附条件，使吸附更容易触发
+        // 角度要求从0.95降低到0.8，这样允许更大的角度范围
+        if (dotProduct > 0.8 && forwardDot > 0) {
           pointToAdd = closestPoint;
           console.log('吸附到最近点:', pointToAdd.x.toFixed(2), pointToAdd.y.toFixed(2), pointToAdd.z.toFixed(2));
+          // 如果设置了回调函数，调用它
+          if (this.snapCallback && typeof this.snapCallback === 'function') {
+            this.snapCallback(pointToAdd);
+          }
         }
       }
     }
@@ -731,8 +754,8 @@ class PlyRenderer {
     let closestPoint = null;
     let minDistance = Infinity;
     
-    // 增加距离阈值，使吸附更容易触发
-    const distanceThreshold = 2.0; // 从1.0增加到2.0
+    // 进一步增加距离阈值，使吸附更容易触发
+    const distanceThreshold = 3.0; // 从2.0增加到3.0
     
     // 优化：限制检查的点数，当点数过多时只检查部分点
     const points = pointsData.points;
