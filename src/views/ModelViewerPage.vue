@@ -1362,11 +1362,18 @@ const togglePoint2CTMode = () => {
     selectedModelKey: selectedModelKey.value,
     rendererReady: rendererReady.value,
     plyRenderer: !!plyRenderer.value,
-    isDrawingMode: isDrawingMode.value
+    isDrawingMode: isDrawingMode.value,
+    hasPlyData: hasPlyData.value
   });
 
   if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value) {
     alert('请先加载模型后再进入选点模式');
+    return;
+  }
+  
+  // 确保点位数据已加载
+  if (!hasPlyData.value) {
+    alert('请先点击"获取点位"按钮加载模型点位数据');
     return;
   }
   
@@ -1377,6 +1384,7 @@ const togglePoint2CTMode = () => {
   if (isPoint2CTMode.value) {
     console.log('进入点2CT选点模式');
     const organName = selectedModelKey.value;
+    
     // 设置当前模型，确保吸附功能能找到对应的点位数据
     if (plyRenderer.value.setCurrentModel) {
       plyRenderer.value.setCurrentModel(organName);
@@ -1391,10 +1399,23 @@ const togglePoint2CTMode = () => {
       console.warn('点2CT模式：batchId为空，请检查URL参数');
     }
     
-    // 启用吸附功能，将阈值从5增加到15，使用正确的点位处理函数
-    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
-    // 重置选点状态
+    // 重置选点状态，确保状态干净
     resetPoint2CT();
+    
+    // 启用吸附功能，将阈值从5增加到15，使用正确的点位处理函数
+    try {
+      // 先禁用再重新启用，确保吸附功能正确初始化
+      if (plyRenderer.value.disableSnapToClosestPoint) {
+        plyRenderer.value.disableSnapToClosestPoint();
+      }
+      plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
+      console.log('点2CT模式：吸附功能已正确启用，阈值为15');
+    } catch (error) {
+      console.error('启用吸附功能失败:', error);
+      alert('启用选点功能失败，请重试');
+      isPoint2CTMode.value = false;
+      return;
+    }
     
     // 禁用控制器，固定模型（与绘制模式相同的固定相机位置功能）
     if (plyRenderer.value && plyRenderer.value.controls) {
@@ -1446,19 +1467,17 @@ const handlePointSelection = (pointData) => {
   // 初始化point2CTManager
   point2CTManager.setSelectedPoint(pointData.coordinate, pointData.normal);
   
-  // 自动选择第一个轴向（x轴），让用户体验更流畅
-  // 这样用户点击选中点后会自动进入下一步
-  const defaultAxis = 'x';
-  selectedAxis.value = defaultAxis;
-  const unitVector = getUnitVector(defaultAxis);
-  point2CTManager.setUnitVector(unitVector);
-  console.log(`点2CT模式：已自动选择${defaultAxis}轴作为初始轴向`);
-  
-  // 自动设置并确认第一个角度为0度，进一步提升用户体验
+  // 不自动选择轴向和角度，让用户手动完成选择流程
+  // 重置轴向和角度状态，确保用户从选择轴向开始
+  selectedAxis.value = null;
   firstAngle.value = 0;
-  point2CTManager.setFirstAngle(0);
-  firstAngleSet.value = true;
-  console.log('点2CT模式：已自动设置并确认第一个角度为0度');
+  firstAngleSet.value = false;
+  secondAngle.value = 0;
+  secondAngleSet.value = false;
+  thirdAngle.value = 0;
+  thirdAngleSet.value = false;
+  
+  console.log('点2CT模式：已选中点，请手动选择轴向和角度');
 };
 
 // 获取单位向量函数
@@ -1531,8 +1550,8 @@ const confirmSecondAngle = () => {
 const updateThirdAngle = () => {
   if (!secondAngleSet.value) return;
   
-  // 围绕面法向量旋转 - 修复函数名拼写
-  point2CTManager.rotateAroundFacenormal(thirdAngle.value);
+  // 围绕面法向量旋转
+  point2CTManager.rotateAroundFaceNormal(thirdAngle.value);
   
   // 更新渲染器中的正方形显示
   const squarePoints = point2CTManager.getSquarePoints();
@@ -1612,9 +1631,15 @@ const displayPoint2CTRecord = (recordId) => {
       plyRenderer.value.highlightPoint(record.point.coordinate, { color: [1, 0, 0] });
     }
     
-    // 显示ZIP解压的PLY文件生成的面
+    // 显示ZIP解压的PLY文件生成的面，确保不会覆盖原始模型
     if (record.files && record.files.ply && typeof plyRenderer.value.renderPLY === 'function') {
-      plyRenderer.value.renderPLY(record.files.ply, '#00FF00');
+      // 添加参数确保在显示PLY面时保持原始模型可见
+      plyRenderer.value.renderPLY(record.files.ply, '#00FF00', true); // 第三个参数表示保持原始模型可见
+    }
+    
+    // 如果有渲染图像，显示它
+    if (record.files && record.files.png1) {
+      displayRenderImage(record.files.png1, '历史记录渲染图');
     }
     
     currentDisplayedPoint2CTId.value = recordId;
@@ -1733,7 +1758,8 @@ const handleUploadPoint2CTParams = async () => {
           // 查找PNG文件（渲染图片）
           const pngFile = response.extractedFiles.pngFiles[0]; // 只处理第一个PNG文件
           if (pngFile && pngFile.url) {
-            uploadedFiles.png = pngFile.url;
+            // 使用png1作为属性名，与模板保持一致
+            uploadedFiles.png1 = pngFile.url;
             console.log('找到渲染图片:', pngFile.name);
             // 显示PNG渲染图片
             displayRenderImage(pngFile.url, pngFile.name);
