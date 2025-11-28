@@ -609,6 +609,123 @@
                     </div>
                   </div>
                   
+                  <!-- 图像2点功能 -->
+                  <div class="image2point-section">
+                    <div class="section-header">
+                      <h5>图像2点功能</h5>
+                    </div>
+                    
+                    <!-- 上传表单 -->
+                    <div class="image2point-form">
+                      <div class="form-group">
+                        <label for="batchIdInput">Batch ID</label>
+                        <input 
+                          id="batchIdInput"
+                          type="text" 
+                          v-model="image2PointBatchId" 
+                          placeholder="请输入Batch ID"
+                          class="batch-id-input"
+                        >
+                      </div>
+                      
+                      <div class="form-group">
+                        <label for="imageUploadInput">上传图像</label>
+                        <input 
+                          id="imageUploadInput"
+                          type="file" 
+                          @change="handleImageUpload" 
+                          accept="image/png, image/jpeg"
+                          class="image-upload-input"
+                        >
+                        <div v-if="uploadedFileName" class="uploaded-file-info">
+                          <span class="file-name">{{ uploadedFileName }}</span>
+                          <button @click="clearUploadedFile" class="clear-file-btn">清除</button>
+                        </div>
+                      </div>
+                      
+                      <button 
+                        class="submit-image2point-btn primary"
+                        @click="submitImage2Point"
+                        :disabled="!canSubmitImage2Point || isImage2PointProcessing"
+                      >
+                        <i class="process-icon">{{ isImage2PointProcessing ? '⏳' : '🔍' }}</i> 
+                        {{ isImage2PointProcessing ? '处理中...' : '提交处理' }}
+                      </button>
+                    </div>
+                    
+                    <!-- 处理状态 -->
+                    <div v-if="image2PointMessage" class="processing-status-container">
+                      <div :class="['processing-result', image2PointSuccess ? 'success' : 'error']">
+                        <span class="result-icon">{{ image2PointSuccess ? '✅' : '❌' }}</span>
+                        <span>{{ image2PointMessage }}</span>
+                      </div>
+                    </div>
+                    
+                    <!-- 结果展示 -->
+                    <div v-if="ctImageUrl || eusImageUrl" class="result-images-container">
+                      <div class="result-images-header">
+                        <h5>处理结果</h5>
+                      </div>
+                      <div class="images-grid">
+                        <div v-if="ctImageUrl" class="image-item">
+                          <div class="image-label">CT图像</div>
+                          <img :src="ctImageUrl" class="result-image" alt="CT图像" />
+                        </div>
+                        <div v-if="eusImageUrl" class="image-item">
+                          <div class="image-label">EUS图像</div>
+                          <img :src="eusImageUrl" class="result-image" alt="EUS图像" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 历史记录 -->
+                    <div v-if="image2PointRecords.length > 0" class="image2point-history-section">
+                      <div class="section-header">
+                        <h5>历史记录</h5>
+                        <button 
+                          class="toggle-history-btn" 
+                          @click="toggleImage2PointHistory"
+                          :class="{ active: showImage2PointHistory }"
+                        >
+                          {{ showImage2PointHistory ? '隐藏' : '显示' }}
+                        </button>
+                      </div>
+                       
+                      <div v-if="showImage2PointHistory" class="history-list">
+                        <div 
+                          v-for="record in image2PointRecords" 
+                          :key="record.id"
+                          class="history-item"
+                        >
+                          <div class="record-header">
+                            <span class="record-time">{{ new Date(record.timestamp).toLocaleString() }}</span>
+                            <span class="record-batch-id">Batch: {{ record.batchId }}</span>
+                            <button 
+                              class="delete-record-btn"
+                              @click="deleteImage2PointRecord(record.id)"
+                              title="删除记录"
+                            >
+                              删除
+                            </button>
+                          </div>
+                          <div class="record-details">
+                            <div class="record-file-name">文件: {{ record.uploadedFileName }}</div>
+                            <div class="images-grid">
+                              <div v-if="record.files.ct" class="image-item history-image">
+                                <div class="image-label">CT图像</div>
+                                <img :src="record.files.ct" class="history-result-image" alt="CT图像" />
+                              </div>
+                              <div v-if="record.files.eus" class="image-item history-image">
+                                <div class="image-label">EUS图像</div>
+                                <img :src="record.files.eus" class="history-result-image" alt="EUS图像" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <!-- 颜色选择器 -->
                   <div class="color-selection-section">
                     <div class="section-header">
@@ -713,6 +830,7 @@ import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly, getCalibrationTra
 import ModelRenderer from '../utils/modelRenderer.js';
 import PlyRenderer from '../utils/plyRenderer.js';
 import point2CTManager from '../utils/point2ct.js';
+import { Picture2PointManager } from '../utils/picture2point.js';
 import {
   presetColors,
   rgbToHex,
@@ -775,9 +893,215 @@ const downloadRenderImage = () => {
 const closeRenderImage = () => {
   renderImageUrl.value = null;
   renderImageName.value = '';
+}
+
+// 图像2点功能相关方法
+const handleImageUpload = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    uploadedFile.value = file;
+    uploadedFileName.value = file.name;
+  }
 };
+
+const clearUploadedFile = () => {
+  uploadedFile.value = null;
+  uploadedFileName.value = '';
+  // 清空文件输入
+  const input = document.getElementById('imageUploadInput');
+  if (input) input.value = '';
+};
+
+const canSubmitImage2Point = computed(() => {
+  return image2PointBatchId.value.trim() !== '' && uploadedFile.value !== null;
+});
+
+const submitImage2Point = async () => {
+  if (!canSubmitImage2Point.value || isImage2PointProcessing.value) return;
+  
+  isImage2PointProcessing.value = true;
+  image2PointMessage.value = '正在处理...';
+  image2PointSuccess.value = null;
+  
+  try {
+    // 调用image2PointManager的uploadImage方法
+    const result = await image2PointManager.value.uploadImage(image2PointBatchId.value, uploadedFile.value);
+    
+    if (result && result.success && result.data) {
+      const { ctImage, eusImage, points } = result.data;
+      
+      // 设置CT和EUS图像URL
+      if (ctImage && ctImage.url) {
+        ctImageUrl.value = ctImage.url;
+      }
+      if (eusImage && eusImage.url) {
+        eusImageUrl.value = eusImage.url;
+      }
+      
+      // 处理点坐标并渲染正方形面
+      if (points && points.length > 0) {
+        console.log(`接收到${points.length}个点坐标，开始渲染正方形面`);
+        
+        // 确保至少有4个点才能渲染正方形面
+        if (points.length >= 4) {
+          const renderSuccess = await renderSquareFromPLY(points);
+          if (!renderSuccess) {
+            console.warn('正方形面渲染失败，但其他功能正常');
+            image2PointMessage.value = '图像和点数据加载成功，但面渲染出现问题';
+          } else {
+            console.log('正方形面渲染成功完成');
+          }
+        } else {
+          console.warn(`点数据不足，需要至少4个点，实际只有${points.length}个点`);
+          image2PointMessage.value = '处理成功，但点数据不足，无法渲染正方形面';
+        }
+      } else {
+        console.warn('未接收到有效的点坐标数据');
+        image2PointMessage.value = '处理成功，但未返回点坐标数据';
+      }
+      
+      // 保存记录
+      const record = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        batchId: image2PointBatchId.value,
+        uploadedFileName: uploadedFile.value?.name || '',
+        files: {
+          ct: ctImageUrl.value,
+          eus: eusImageUrl.value,
+          points: points // 保存点坐标而不是PLY数据
+        }
+      };
+      image2PointRecords.value.unshift(record);
+      
+      image2PointMessage.value = '处理成功！';
+      image2PointSuccess.value = true;
+    } else {
+      image2PointMessage.value = result?.error || '处理失败，请重试';
+      image2PointSuccess.value = false;
+    }
+  } catch (error) {
+    console.error('处理图像时出错:', error);
+    image2PointMessage.value = '处理过程中发生错误：' + (error.message || '未知错误');
+    image2PointSuccess.value = false;
+  } finally {
+    isImage2PointProcessing.value = false;
+    
+    // 5秒后清除消息
+    setTimeout(() => {
+      image2PointMessage.value = '';
+    }, 5000);
+  }
+};
+
+// 切换历史记录显示状态
+const toggleImage2PointHistory = () => {
+  showImage2PointHistory.value = !showImage2PointHistory.value;
+};
+
+// 删除历史记录
+const deleteImage2PointRecord = (recordId) => {
+  if (confirm('确定要删除这条记录吗？')) {
+    image2PointRecords.value = image2PointRecords.value.filter(record => record.id !== recordId);
+    // 可以在这里添加保存到本地存储的逻辑
+  }
+};
+
+/**
+ * 从点坐标数组渲染正方形面
+ * @param {Array} points - 点坐标数组
+ */
+const renderSquareFromPLY = async (points) => {
+  try {
+    if (!points || points.length < 4) {
+      console.error('渲染正方形失败：点数据不足4个点');
+      return false;
+    }
+
+    console.log('开始渲染正方形面，点数：', points.length);
+    console.log('顶点坐标:', points.map(p => ({x: p.x, y: p.y, z: p.z})));
+    
+    // 简化渲染逻辑，直接使用THREE.js API创建四边形面
+    // 不再依赖plyRenderer的特定方法，以避免兼容性问题
+    if (renderer.value && renderer.value.scene) {
+      console.log('使用THREE.js渲染器直接创建正方形面');
+      
+      // 创建正方形面几何体
+      const squareGeometry = new THREE.BufferGeometry();
+      
+      // 直接使用4个顶点的坐标
+      const positions = new Float32Array([
+        points[0].x, points[0].y, points[0].z,
+        points[1].x, points[1].y, points[1].z,
+        points[2].x, points[2].y, points[2].z,
+        points[3].x, points[3].y, points[3].z
+      ]);
+      
+      squareGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      // 使用两个三角形组成四边形，确保正确的面连接
+      squareGeometry.setIndex([0, 1, 2, 0, 2, 3]);
+      
+      // 计算法线以确保正确的光照效果
+      squareGeometry.computeVertexNormals();
+      
+      // 创建半透明绿色材质
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x00ff00,  // 绿色
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide
+      });
+      
+      // 创建网格对象
+      const square = new THREE.Mesh(squareGeometry, material);
+      square.name = 'image2point-square-face';
+      
+      // 添加到场景
+      renderer.value.scene.add(square);
+      
+      // 同时添加顶点作为可视点，方便调试
+      const pointsGeometry = new THREE.BufferGeometry();
+      pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      const pointsMaterial = new THREE.PointsMaterial({
+        color: 0xff0000,  // 红色顶点
+        size: 2.0,
+        sizeAttenuation: true
+      });
+      
+      const pointsObject = new THREE.Points(pointsGeometry, pointsMaterial);
+      pointsObject.name = 'image2point-square-vertices';
+      renderer.value.scene.add(pointsObject);
+      
+      console.log('正方形面已成功渲染到场景，包含4个顶点和一个四边形面');
+      return true;
+    }
+    
+    // 如果没有找到合适的渲染器
+    console.error('渲染正方形失败：未找到可用的THREE.js渲染器');
+    return false;
+    
+  } catch (error) {
+    console.error('渲染正方形面时出错:', error);
+    return false;
+  }
+}
 const loadingAll = ref(false);
 const allLoaded = ref(false);
+
+// 图像2点功能相关状态
+const image2PointManager = ref(null);
+const image2PointBatchId = ref('');
+const uploadedFile = ref(null);
+const uploadedFileName = ref('');
+const ctImageUrl = ref('');
+const eusImageUrl = ref('');
+const isImage2PointProcessing = ref(false);
+const image2PointMessage = ref('');
+const image2PointSuccess = ref(null);
+const image2PointRecords = ref([]);
+const showImage2PointHistory = ref(true);
 const isPanelExpanded = ref(true); // 控制面板展开/收起状态
 // 校准轨迹相关状态
 const calibrationTrajectory = ref([]); // 校准轨迹记录
@@ -970,6 +1294,9 @@ onMounted(async () => {
     
     // 初始化ModelRenderer
     renderer.value = new ModelRenderer('modelContainer');
+    
+    // 初始化图像2点管理器
+    image2PointManager.value = new Picture2PointManager();
     
     // 等待渲染器完全初始化
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -2320,6 +2647,165 @@ const deleteHistoryTrajectory = (trajectoryId) => {
 </script>
 
 <style scoped>
+/* 图像2点功能样式 */
+.image2point-section {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.image2point-form {
+  margin-top: 15px;
+}
+
+.image2point-form .form-group {
+  margin-bottom: 15px;
+}
+
+.image2point-form label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.batch-id-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.image-upload-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.uploaded-file-info {
+  margin-top: 10px;
+  padding: 8px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.file-name {
+  font-size: 14px;
+  color: #495057;
+  word-break: break-all;
+}
+
+.clear-file-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.clear-file-btn:hover {
+  background-color: #5a6268;
+}
+
+.submit-image2point-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.submit-image2point-btn.primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.submit-image2point-btn.primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.submit-image2point-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.processing-status-container {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 4px;
+}
+
+.processing-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.processing-result.success {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.processing-result.error {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.result-images-container {
+  margin-top: 20px;
+}
+
+.result-images-header {
+  margin-bottom: 15px;
+}
+
+.result-images-header h5 {
+  margin: 0;
+  font-size: 16px;
+  color: #343a40;
+}
+
+.images-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.image-item {
+  text-align: center;
+}
+
+.image-label {
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #495057;
+  font-size: 14px;
+}
+
+.result-image {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 /* 点2CT记录样式 */
 .point2ct-records {
   margin-top: 20px;
