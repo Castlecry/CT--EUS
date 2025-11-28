@@ -1395,6 +1395,18 @@ const togglePoint2CTMode = () => {
     plyRenderer.value.enableSnapToClosestPoint(handlePointClick, 15);
     // 重置选点状态
     resetPoint2CT();
+    
+    // 禁用控制器，固定模型（与绘制模式相同的固定相机位置功能）
+    if (plyRenderer.value && plyRenderer.value.controls) {
+      plyRenderer.value.controls.enabled = false;
+      console.log('点2CT模式：控制器已禁用，模型固定');
+    }
+    
+    // 设置鼠标样式为十字准星
+    if (plyRenderer.value && plyRenderer.value.renderer && plyRenderer.value.renderer.domElement) {
+      plyRenderer.value.renderer.domElement.style.cursor = 'crosshair';
+      console.log('点2CT模式：鼠标样式已设置为十字准星');
+    }
   } else {
     console.log('退出点2CT选点模式');
     // 禁用吸附功能，但保留点位数据供绘制模式使用
@@ -1403,6 +1415,19 @@ const togglePoint2CTMode = () => {
     if (selectedPoint.value) {
       plyRenderer.value.highlightPoint(null);
     }
+    
+    // 只有当绘制模式也未激活时，才启用控制器
+    if (!isDrawingMode.value && plyRenderer.value && plyRenderer.value.controls) {
+      plyRenderer.value.controls.enabled = true;
+      console.log('点2CT模式：已退出，控制器已启用');
+    }
+    
+    // 只有当绘制模式也未激活时，才恢复鼠标样式
+    if (!isDrawingMode.value && plyRenderer.value && plyRenderer.value.renderer && plyRenderer.value.renderer.domElement) {
+      plyRenderer.value.renderer.domElement.style.cursor = 'default';
+      console.log('点2CT模式：已退出，鼠标样式已恢复');
+    }
+    
     console.log('点2CT模式已退出，点位数据保持可用');
   }
 };
