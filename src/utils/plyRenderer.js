@@ -554,10 +554,20 @@ class PlyRenderer {
       
       // 检查是否有当前吸附的点
       if (this.currentClosestPoint && this.currentPointNormal) {
-        // 调用回调函数，传递点坐标和法向量信息
-        if (this.snapCallback) {
+        // 获取摄像机前方方向，进行与_checkAndHighlightClosestPoint相同的验证
+        const cameraForward = new THREE.Vector3();
+        this.camera.getWorldDirection(cameraForward);
+        
+        // 验证吸附点是否在摄像机可见方向
+        const directionToPoint = new THREE.Vector3().subVectors(this.currentClosestPoint, this.camera.position).normalize();
+        const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
+        const forwardDot = directionToPoint.dot(cameraForward);
+        
+        // 严格检查：点必须在摄像机前方且与射线方向高度一致
+        if (dotProduct > 0.95 && forwardDot > 0 && this.snapCallback) {
+          // 使用coordinate属性名，与handlePointClick函数的期望格式匹配
           this.snapCallback({
-            point: this.currentClosestPoint,
+            coordinate: this.currentClosestPoint,
             normal: this.currentPointNormal
           });
         }
@@ -575,8 +585,9 @@ class PlyRenderer {
           const forwardDot = directionToPoint.dot(cameraForward);
           
           if (dotProduct > 0.95 && forwardDot > 0) {
+            // 使用coordinate属性名，与handlePointClick函数的期望格式匹配
             this.snapCallback({
-              point: closestPointInfo.coordinate,
+              coordinate: closestPointInfo.coordinate,
               normal: closestPointInfo.normal
             });
           }
@@ -1744,6 +1755,38 @@ class PlyRenderer {
         this.trajectoryHistory.setCurrentModel(organName);
       }
       console.log('当前模型已设置为:', organName);
+    }
+  }
+
+  /**
+   * 高亮显示指定的点
+   * @param {THREE.Vector3|null} point - 要高亮的点坐标，如果为null则清除高亮
+   */
+  highlightPoint(point) {
+    // 如果有之前的高亮点，清除它
+    if (this.highlightedPointMesh) {
+      this.scene.remove(this.highlightedPointMesh);
+      this.highlightedPointMesh.geometry.dispose();
+      this.highlightedPointMesh.material.dispose();
+      this.highlightedPointMesh = null;
+    }
+    
+    // 如果提供了有效的点，创建高亮显示
+    if (point && point.isVector3) {
+      // 创建点的几何体
+      const geometry = new THREE.SphereGeometry(2, 16, 16); // 半径为2，细分度16
+      // 创建发光材质
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xff0000, // 红色高亮
+        transparent: true,
+        opacity: 0.8
+      });
+      // 创建网格对象
+      this.highlightedPointMesh = new THREE.Mesh(geometry, material);
+      // 设置位置
+      this.highlightedPointMesh.position.copy(point);
+      // 添加到场景
+      this.scene.add(this.highlightedPointMesh);
     }
   }
 
