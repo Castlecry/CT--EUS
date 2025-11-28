@@ -1377,6 +1377,12 @@ const togglePoint2CTMode = () => {
   
   if (isPoint2CTMode.value) {
     console.log('进入点2CT选点模式');
+    const organName = selectedModelKey.value;
+    // 设置当前模型，确保吸附功能能找到对应的点位数据
+    if (plyRenderer.value.setCurrentModel) {
+      plyRenderer.value.setCurrentModel(organName);
+      console.log('点2CT模式：已设置当前模型', organName);
+    }
     // 启用吸附功能，将阈值从5增加到15，使用共享点位处理函数
     plyRenderer.value.enableSnapToClosestPoint(handlePointClick, 15);
     // 重置选点状态

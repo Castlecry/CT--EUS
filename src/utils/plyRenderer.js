@@ -1733,6 +1733,21 @@ class PlyRenderer {
   }
 
   /**
+   * 设置当前模型
+   * @param {string} organName - 器官名称
+   */
+  setCurrentModel(organName) {
+    if (organName && typeof organName === 'string') {
+      this.currentModel = organName;
+      // 同步更新轨迹历史记录的当前模型
+      if (this.trajectoryHistory && this.trajectoryHistory.setCurrentModel) {
+        this.trajectoryHistory.setCurrentModel(organName);
+      }
+      console.log('当前模型已设置为:', organName);
+    }
+  }
+
+  /**
    * 启用吸附到最近点
    * @param {Function} callback - 吸附回调函数
    * @param {number} threshold - 吸附阈值（可选）
@@ -1761,7 +1776,12 @@ class PlyRenderer {
       this._bindEventHandlers();
     }
     
-    console.log('启用吸附功能，鼠标样式已设置为十字型');
+    // 确保currentModel已设置（与toggleDrawing方法保持一致）
+    if (!this.currentModel && this.trajectoryHistory.getCurrentModel) {
+      this.currentModel = this.trajectoryHistory.getCurrentModel();
+    }
+    
+    console.log('启用吸附功能，鼠标样式已设置为十字型，currentModel:', this.currentModel);
   }
 
   /**
