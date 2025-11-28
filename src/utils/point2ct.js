@@ -266,6 +266,28 @@ class Point2CTManager {
     this.选中点法向量 = normal;
     console.log('设置选中点:', point ? point.toArray() : null);
   }
+  
+  /**
+   * 重置所有状态
+   * 兼容ModelViewerPage.vue中的resetPoint2CTMode函数调用
+   */
+  reset() {
+    this.清除选中状态();
+    console.log('point2CTManager已重置');
+  }
+  
+  /**
+   * 围绕法向量旋转
+   * 兼容ModelViewerPage.vue中的updateThirdAngle函数调用
+   * @param {number} angle - 旋转角度（度数）
+   * @returns {number} 设置后的角度值
+   */
+  rotateAroundFacetNormal(angle) {
+    // 限制角度范围在0-180度
+    this.旋转角度3 = Math.max(0, Math.min(180, angle));
+    console.log(`设置第三个角度: ${this.旋转角度3}度`);
+    return this.旋转角度3;
+  }
 }
 
 // 导出实例

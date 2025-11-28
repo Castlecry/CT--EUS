@@ -65,7 +65,7 @@ export const uploadPoint2CTParams = async (batchId, pointParams) => {
     };
     
     // 发送POST请求，期望后端返回ZIP文件
-    const response = await apiClient.post('/point2ct/generate', requestData, {
+    const response = await apiClient.post('/eus/image/generate', requestData, {
       headers: {
         'Content-Type': 'application/json'
       },

@@ -1696,7 +1696,7 @@ const handleUploadPoint2CTParams = async () => {
     // 调用上传接口
     const response = await uploadPoint2CTParams(batchId, params);
     
-    if (response && response.files) {
+    if (response && response.extractedFiles && !response.extractedFiles.hasError) {
       console.log('上传成功，获取到ZIP解压文件:', response);
       
       // 保存记录所需的数据
@@ -1719,31 +1719,24 @@ const handleUploadPoint2CTParams = async () => {
       // 处理并显示生成的PLY模型
       if (renderer.value && plyRenderer.value) {
         // 查找PLY文件
-        const plyFile = response.files.find(file => file.name.endsWith('.ply'));
+        const plyFile = response.extractedFiles.plyFiles[0]; // 只处理第一个PLY文件
         
-        if (plyFile && plyFile.blobUrl) {
-          uploadedFiles.ply = plyFile.blobUrl;
+        if (plyFile && plyFile.url) {
+          uploadedFiles.ply = plyFile.url;
           
           // 使用plyRenderer渲染模型，使用绿色显示面
           await plyRenderer.value.renderPLY(plyFile.blobUrl, '#00FF00');
           
           // 保存生成的PLY URL，以便后续使用或清理
-          generatedPlyUrl.value = plyFile.blobUrl;
+          generatedPlyUrl.value = plyFile.url;
           
           // 查找PNG文件（渲染图片）
-          const pngFiles = response.files.filter(file => file.name.endsWith('.png'));
-          if (pngFiles.length > 0) {
-            // 保存第一个和第二个PNG文件
-            if (pngFiles[0]) {
-              uploadedFiles.png1 = pngFiles[0].blobUrl;
-              console.log('找到渲染图片1:', pngFiles[0].name);
-              // 显示第一个PNG渲染图片
-              displayRenderImage(pngFiles[0].blobUrl, pngFiles[0].name);
-            }
-            if (pngFiles[1]) {
-              uploadedFiles.png2 = pngFiles[1].blobUrl;
-              console.log('找到渲染图片2:', pngFiles[1].name);
-            }
+          const pngFile = response.extractedFiles.pngFiles[0]; // 只处理第一个PNG文件
+          if (pngFile && pngFile.url) {
+            uploadedFiles.png = pngFile.url;
+            console.log('找到渲染图片:', pngFile.name);
+            // 显示PNG渲染图片
+            displayRenderImage(pngFile.url, pngFile.name);
           }
           
           // 保存点2CT记录

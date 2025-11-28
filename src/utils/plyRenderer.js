@@ -1902,6 +1902,212 @@ class PlyRenderer {
 
     console.log('PlyRenderer已销毁');
   }
+  
+  /**
+   * 渲染PLY文件，将点连接成面并涂色
+   * @param {string} plyUrl - PLY文件的URL
+   * @param {string} color - 面的颜色，默认为绿色
+   * @returns {Promise<boolean>} 是否成功渲染
+   */
+  async renderPLY(plyUrl, color = '#00FF00') {
+    if (!this._initialized || !plyUrl) {
+      console.error('渲染PLY失败：初始化未完成或URL无效');
+      return false;
+    }
+
+    try {
+      console.log('开始渲染PLY文件:', plyUrl);
+      
+      // 加载PLY文件
+      const response = await fetch(plyUrl);
+      if (!response.ok) {
+        throw new Error(`加载PLY文件失败：${response.statusText}`);
+      }
+
+      const text = await response.text();
+      const lines = text.split('\n');
+      
+      // 解析PLY头部
+      let vertexCount = 0;
+      let faceCount = 0;
+      let dataStartIndex = -1;
+      let currentLine = 0;
+      
+      while (currentLine < lines.length) {
+        const line = lines[currentLine].trim();
+        
+        if (line.startsWith('element vertex')) {
+          vertexCount = parseInt(line.split(' ')[2]);
+        } else if (line.startsWith('element face')) {
+          faceCount = parseInt(line.split(' ')[2]);
+        } else if (line === 'end_header') {
+          dataStartIndex = currentLine + 1;
+          break;
+        }
+        
+        currentLine++;
+      }
+      
+      if (dataStartIndex === -1) {
+        throw new Error('PLY文件格式错误：未找到end_header');
+      }
+      
+      // 提取顶点数据
+      const vertices = [];
+      for (let i = 0; i < vertexCount && dataStartIndex + i < lines.length; i++) {
+        const parts = lines[dataStartIndex + i].trim().split(/\s+/).map(parseFloat);
+        if (parts.length >= 3) {
+          vertices.push(new THREE.Vector3(parts[0], parts[1], parts[2]));
+        }
+      }
+      
+      // 提取面数据（如果有）
+      const faces = [];
+      const faceDataStart = dataStartIndex + vertexCount;
+      
+      // 如果没有指定面数或者面数为0，尝试从顶点构建简单的四边形
+      if (faceCount === 0 || faceCount === undefined) {
+        console.log('PLY文件没有指定面数据，尝试从顶点构建四边形');
+        
+        // 假设顶点是按顺序排列的，尝试构建四边形
+        if (vertices.length >= 4) {
+          // 假设前四个点形成一个四边形
+          faces.push([0, 1, 2, 3]);
+        }
+      } else {
+        // 解析文件中的面数据
+        for (let i = 0; i < faceCount && faceDataStart + i < lines.length; i++) {
+          const parts = lines[faceDataStart + i].trim().split(/\s+/).map(parseInt);
+          if (parts.length > 0) {
+            // PLY面格式：顶点数 + 顶点索引列表
+            const faceVertexCount = parts[0];
+            const faceVertices = parts.slice(1, 1 + faceVertexCount);
+            faces.push(faceVertices);
+          }
+        }
+      }
+      
+      // 创建几何体
+      const geometry = new THREE.BufferGeometry();
+      
+      // 设置顶点位置
+      const positions = new Float32Array(vertices.length * 3);
+      vertices.forEach((vertex, index) => {
+        positions[index * 3] = vertex.x;
+        positions[index * 3 + 1] = vertex.y;
+        positions[index * 3 + 2] = vertex.z;
+      });
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      // 如果有面数据，创建三角形面
+      const indices = [];
+      faces.forEach(face => {
+        // 对于每个面，转换为三角形（使用三角剖分）
+        if (face.length >= 3) {
+          for (let i = 1; i < face.length - 1; i++) {
+            indices.push(face[0], face[i], face[i + 1]);
+          }
+        }
+      });
+      
+      // 如果没有面数据但有顶点，尝试创建默认面
+      if (indices.length === 0 && vertices.length >= 4) {
+        console.log('创建默认四边形面');
+        indices.push(0, 1, 2, 0, 2, 3);
+      }
+      
+      if (indices.length > 0) {
+        geometry.setIndex(indices);
+      }
+      
+      // 计算法线
+      geometry.computeVertexNormals();
+      
+      // 创建材质
+      const material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.7
+      });
+      
+      // 创建网格
+      const mesh = new THREE.Mesh(geometry, material);
+      
+      // 给网格添加名称，以便后续可以找到并删除
+      mesh.name = 'point2CTGeneratedMesh';
+      
+      // 移除之前可能存在的相同名称的网格
+      const existingMesh = this.scene.getObjectByName('point2CTGeneratedMesh');
+      if (existingMesh) {
+        this.scene.remove(existingMesh);
+        console.log('已移除旧的生成网格');
+      }
+      
+      // 添加到场景
+      this.scene.add(mesh);
+      
+      // 调整相机以确保能看到整个模型
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+      if (box) {
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        
+        // 将模型定位到世界中心附近，方便查看
+        mesh.position.x = -center.x;
+        mesh.position.y = -center.y;
+        mesh.position.z = -center.z;
+        
+        // 调整相机位置
+        this._fitCameraToObject(mesh);
+      }
+      
+      console.log('PLY模型渲染成功，顶点数:', vertices.length, '面数:', faces.length);
+      return true;
+    } catch (error) {
+      console.error('渲染PLY失败:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * 调整相机以适应对象
+   * @private
+   * @param {THREE.Object3D} object - 要适应的对象
+   */
+  _fitCameraToObject(object) {
+    if (!this.camera || !this.controls) return;
+    
+    const box = new THREE.Box3().setFromObject(object);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    
+    // 计算相机需要的距离
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = this.camera.fov * (Math.PI / 180);
+    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+    
+    // 增加一些边距
+    cameraZ *= 1.5;
+    
+    // 设置相机位置
+    this.camera.position.set(center.x, center.y, center.z + cameraZ);
+    this.camera.lookAt(center);
+    
+    // 更新控制器目标
+    if (this.controls.target) {
+      this.controls.target.copy(center);
+    }
+    
+    // 更新控制器
+    if (this.controls.update) {
+      this.controls.update();
+    }
+    
+    // 渲染更新
+    this.renderer.render(this.scene, this.camera);
+  }
 }
 
 export default PlyRenderer;
