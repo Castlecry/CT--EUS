@@ -1412,6 +1412,34 @@ const handlePointSelection = (pointData) => {
   
   // 初始化point2CTManager
   point2CTManager.setSelectedPoint(pointData.coordinate, pointData.normal);
+  
+  // 自动选择第一个轴向（x轴），让用户体验更流畅
+  // 这样用户点击选中点后会自动进入下一步
+  const defaultAxis = 'x';
+  selectedAxis.value = defaultAxis;
+  const unitVector = getUnitVector(defaultAxis);
+  point2CTManager.setUnitVector(unitVector);
+  console.log(`点2CT模式：已自动选择${defaultAxis}轴作为初始轴向`);
+  
+  // 自动设置并确认第一个角度为0度，进一步提升用户体验
+  firstAngle.value = 0;
+  point2CTManager.setFirstAngle(0);
+  firstAngleSet.value = true;
+  console.log('点2CT模式：已自动设置并确认第一个角度为0度');
+};
+
+// 获取单位向量函数
+const getUnitVector = (axis) => {
+  switch (axis) {
+    case 'x':
+      return { x: 1, y: 0, z: 0 };
+    case 'y':
+      return { x: 0, y: 1, z: 0 };
+    case 'z':
+      return { x: 0, y: 0, z: 1 };
+    default:
+      return { x: 1, y: 0, z: 0 }; // 默认返回x轴
+  }
 };
 
 // 获取单位向量字符串
