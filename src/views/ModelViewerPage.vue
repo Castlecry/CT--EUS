@@ -918,11 +918,15 @@ const handlePointClick = (pointData) => {
     });
     console.log('共享点位已添加:', pointData.coordinate);
     
-    // 根据当前模式进行不同处理
+    // 分别处理不同模式，允许同时在多种模式下工作
+    // 绘制模式处理
     if (isDrawingMode.value) {
       // 绘制模式：继续绘制轨迹
       console.log('绘制轨迹模式：点位已添加到绘制队列');
-    } else if (isPoint2CTMode.value) {
+    }
+    
+    // 点2CT模式处理
+    if (isPoint2CTMode.value) {
       // 点2CT模式：处理点选择
       if (typeof handlePointSelection === 'function') {
         handlePointSelection(pointData);
@@ -930,7 +934,10 @@ const handlePointClick = (pointData) => {
       } else {
         console.error('handlePointSelection函数未定义');
       }
-    } else {
+    }
+    
+    // 如果不在任何模式
+    if (!isDrawingMode.value && !isPoint2CTMode.value) {
       console.warn('未在任何模式下点击，点位已保存到共享点位但未进行其他处理');
     }
   } catch (error) {
@@ -1245,11 +1252,7 @@ const toggleDrawingMode = () => {
     isPoint2CTMode: isPoint2CTMode.value
   });
 
-  // 如果当前在点2CT模式，先退出点2CT模式
-  if (isPoint2CTMode.value) {
-    console.log('当前在点2CT模式，正在退出...');
-    togglePoint2CTMode();
-  }
+  // 不再自动退出点2CT模式，允许两种模式共存
 
   if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || !hasPlyData.value) {
     console.log('toggleDrawingMode条件不满足，提前返回');
@@ -1367,11 +1370,7 @@ const togglePoint2CTMode = () => {
     return;
   }
   
-  // 如果当前在绘制模式，先退出绘制模式
-  if (isDrawingMode.value) {
-    console.log('当前在绘制模式，正在退出...');
-    toggleDrawingMode();
-  }
+  // 不再自动退出绘制模式，允许两种模式共存
   
   isPoint2CTMode.value = !isPoint2CTMode.value;
   
