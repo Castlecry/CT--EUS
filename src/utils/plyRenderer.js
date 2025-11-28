@@ -1975,34 +1975,45 @@ class PlyRenderer {
       
       // 创建三角形面索引
       const indices = [];
-      const faceDataStart = dataStartIndex + vertexCount;
       
-      // 首先尝试使用文件中的面数据
-      if (faceCount > 0) {
-        console.log('从PLY文件解析面数据，面数:', faceCount);
-        // 解析文件中的面数据
-        for (let i = 0; i < faceCount && faceDataStart + i < lines.length; i++) {
-          const parts = lines[faceDataStart + i].trim().split(/\s+/).map(parseInt);
-          if (parts.length > 0) {
-            // PLY面格式：顶点数 + 顶点索引列表
-            const faceVertexCount = parts[0];
-            const faceVertices = parts.slice(1, 1 + faceVertexCount);
-            
-            // 对每个面进行三角剖分
-            if (faceVertices.length >= 3) {
-              for (let j = 1; j < faceVertices.length - 1; j++) {
-                indices.push(faceVertices[0], faceVertices[j], faceVertices[j + 1]);
+      // 后端返回的PLY文件只有四个顶点坐标，没有面数据
+      // 对于四个顶点的情况，我们需要构建一个四边形面
+      if (vertices.length === 4) {
+        console.log('检测到4个顶点，构建四边形面');
+        // 正确构建四边形面的索引，使用两个三角形
+        // 注意：确保顶点连接顺序正确以避免面法向量错误
+        indices.push(0, 1, 2, 0, 2, 3);
+      } else {
+        // 如果有面数据，尝试解析
+        const faceDataStart = dataStartIndex + vertexCount;
+        if (faceCount > 0) {
+          console.log('从PLY文件解析面数据，面数:', faceCount);
+          // 解析文件中的面数据
+          for (let i = 0; i < faceCount && faceDataStart + i < lines.length; i++) {
+            const parts = lines[faceDataStart + i].trim().split(/\s+/).map(parseInt);
+            if (parts.length > 0) {
+              // PLY面格式：顶点数 + 顶点索引列表
+              const faceVertexCount = parts[0];
+              const faceVertices = parts.slice(1, 1 + faceVertexCount);
+              
+              // 对每个面进行三角剖分
+              if (faceVertices.length >= 3) {
+                for (let j = 1; j < faceVertices.length - 1; j++) {
+                  indices.push(faceVertices[0], faceVertices[j], faceVertices[j + 1]);
+                }
               }
             }
           }
         }
-      }
-      
-      // 如果没有从文件中获取到面数据，且顶点数足够，创建四边形面
-      if (indices.length === 0 && vertices.length >= 4) {
-        console.log('PLY文件没有面数据，从顶点构建四边形面');
-        // 直接创建两个三角形组成的四边形，使用索引[0,1,2]和[0,2,3]
-        indices.push(0, 1, 2, 0, 2, 3);
+        
+        // 其他情况：如果没有面数据但顶点数>=3，尝试创建面
+        if (indices.length === 0 && vertices.length >= 3) {
+          console.log('创建默认面数据');
+          // 三角剖分处理
+          for (let j = 1; j < vertices.length - 1; j++) {
+            indices.push(0, j, j + 1);
+          }
+        }
       }
       
       if (indices.length > 0) {
