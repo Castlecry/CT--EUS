@@ -545,15 +545,22 @@ class PlyRenderer {
    * @param {MouseEvent} event - 鼠标事件
    */
   _onMouseDown(event) {
+    console.log('_onMouseDown被调用，当前状态:', { snapEnabled: this.snapEnabled, isDrawing: this.isDrawing });
+    
     // 对于点2CT模式，检查snapEnabled而不仅是isDrawing
-    if (!this.isDrawing && !this.snapEnabled) return;
+    if (!this.isDrawing && !this.snapEnabled) {
+      console.log('不在绘制模式且吸附未启用，跳过处理');
+      return;
+    }
 
     // 点2CT模式下的点击处理
     if (this.snapEnabled && !this.isDrawing) {
+      console.log('点2CT模式：处理鼠标点击');
       this._updateMousePosition(event);
       
       // 检查是否有当前吸附的点
       if (this.currentClosestPoint && this.currentPointNormal) {
+        console.log('点2CT模式：找到当前吸附的点');
         // 获取摄像机前方方向，进行与_checkAndHighlightClosestPoint相同的验证
         const cameraForward = new THREE.Vector3();
         this.camera.getWorldDirection(cameraForward);
@@ -563,18 +570,24 @@ class PlyRenderer {
         const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
         const forwardDot = directionToPoint.dot(cameraForward);
         
+        console.log('点2CT模式：摄像机方向验证', { dotProduct, forwardDot });
         // 严格检查：点必须在摄像机前方且与射线方向高度一致
         if (dotProduct > 0.95 && forwardDot > 0 && this.snapCallback) {
+          console.log('点2CT模式：验证通过，调用回调函数');
           // 使用coordinate属性名，与handlePointClick函数的期望格式匹配
           this.snapCallback({
             coordinate: this.currentClosestPoint,
             normal: this.currentPointNormal
           });
+        } else {
+          console.log('点2CT模式：验证失败，不调用回调函数');
         }
       } else {
+        console.log('点2CT模式：没有当前吸附的点，尝试重新查找');
         // 如果没有吸附到点，尝试重新查找最近点
         const closestPointInfo = this._findClosestPoint(this.mouse);
         if (closestPointInfo && closestPointInfo.coordinate && this.snapCallback) {
+          console.log('点2CT模式：重新查找到最近点');
           // 获取摄像机前方方向
           const cameraForward = new THREE.Vector3();
           this.camera.getWorldDirection(cameraForward);
@@ -584,13 +597,19 @@ class PlyRenderer {
           const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
           const forwardDot = directionToPoint.dot(cameraForward);
           
+          console.log('点2CT模式：重新查找点的摄像机方向验证', { dotProduct, forwardDot });
           if (dotProduct > 0.95 && forwardDot > 0) {
+            console.log('点2CT模式：重新查找点验证通过，调用回调函数');
             // 使用coordinate属性名，与handlePointClick函数的期望格式匹配
             this.snapCallback({
               coordinate: closestPointInfo.coordinate,
               normal: closestPointInfo.normal
             });
+          } else {
+            console.log('点2CT模式：重新查找点验证失败，不调用回调函数');
           }
+        } else {
+          console.log('点2CT模式：重新查找未找到有效点');
         }
       }
       return;
@@ -1761,8 +1780,10 @@ class PlyRenderer {
   /**
    * 高亮显示指定的点
    * @param {THREE.Vector3|null} point - 要高亮的点坐标，如果为null则清除高亮
+   * @param {Object} options - 可选配置项
+   * @param {Array<number>} options.color - RGB颜色数组 [r, g, b]，范围0-1
    */
-  highlightPoint(point) {
+  highlightPoint(point, options = {}) {
     // 如果有之前的高亮点，清除它
     if (this.highlightedPointMesh) {
       this.scene.remove(this.highlightedPointMesh);
@@ -1775,9 +1796,18 @@ class PlyRenderer {
     if (point && point.isVector3) {
       // 创建点的几何体
       const geometry = new THREE.SphereGeometry(2, 16, 16); // 半径为2，细分度16
+      
+      // 设置颜色，支持从options中获取
+      let color = 0xff0000; // 默认红色
+      if (options.color && Array.isArray(options.color) && options.color.length === 3) {
+        // 将RGB数组转换为十六进制颜色
+        const [r, g, b] = options.color;
+        color = new THREE.Color(r, g, b).getHex();
+      }
+      
       // 创建发光材质
       const material = new THREE.MeshBasicMaterial({
-        color: 0xff0000, // 红色高亮
+        color: color,
         transparent: true,
         opacity: 0.8
       });

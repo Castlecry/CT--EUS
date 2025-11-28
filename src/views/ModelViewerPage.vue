@@ -903,9 +903,11 @@ const isDisabled = (organKey) => {
 
 // 处理共享点位点击
 const handlePointClick = (pointData) => {
+  console.log('handlePointClick被调用，当前模式：', { isPoint2CTMode: isPoint2CTMode.value, isDrawingMode: isDrawingMode.value });
+  
   // 参数验证
   if (!pointData || !pointData.coordinate) {
-    console.error('无效的点数据：缺少必要的坐标信息');
+    console.error('无效的点数据：缺少必要的坐标信息', pointData);
     return;
   }
   
@@ -924,9 +926,10 @@ const handlePointClick = (pointData) => {
       console.log('绘制轨迹模式：点位已添加到绘制队列');
     } else if (isPoint2CTMode.value) {
       // 点2CT模式：处理点选择
+      console.log('点2CT模式：准备调用handlePointSelection');
       if (typeof handlePointSelection === 'function') {
         handlePointSelection(pointData);
-        console.log('点2CT模式：已选中点，请选择轴单位向量');
+        console.log('点2CT模式：已调用handlePointSelection，selectedPoint:', selectedPoint.value);
       } else {
         console.error('handlePointSelection函数未定义');
       }
@@ -1359,7 +1362,8 @@ const togglePoint2CTMode = () => {
     selectedModelKey: selectedModelKey.value,
     rendererReady: rendererReady.value,
     plyRenderer: !!plyRenderer.value,
-    isDrawingMode: isDrawingMode.value
+    isDrawingMode: isDrawingMode.value,
+    batchId: batchId
   });
 
   if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value) {
@@ -1383,6 +1387,16 @@ const togglePoint2CTMode = () => {
       plyRenderer.value.setCurrentModel(organName);
       console.log('点2CT模式：已设置当前模型', organName);
     }
+    // 设置point2CTManager的批次ID
+    if (point2CTManager && typeof point2CTManager.setBatchId === 'function') {
+      point2CTManager.setBatchId(batchId);
+      console.log('点2CT模式：已设置批次ID', batchId);
+    } else if (point2CTManager && typeof point2CTManager.设置批次ID === 'function') {
+      point2CTManager.设置批次ID(batchId);
+      console.log('点2CT模式：已设置批次ID(中文方法名)', batchId);
+    } else {
+      console.warn('点2CT模式：无法设置批次ID，方法不存在');
+    }
     // 启用吸附功能，将阈值从5增加到15，使用共享点位处理函数
     plyRenderer.value.enableSnapToClosestPoint(handlePointClick, 15);
     // 重置选点状态
@@ -1392,7 +1406,7 @@ const togglePoint2CTMode = () => {
     // 禁用吸附功能，但保留点位数据供绘制模式使用
     plyRenderer.value.disableSnapToClosestPoint();
     // 清除选中点的高亮
-    if (selectedPoint.value) {
+    if (selectedPoint.value && plyRenderer.value && typeof plyRenderer.value.highlightPoint === 'function') {
       plyRenderer.value.highlightPoint(null);
     }
     console.log('点2CT模式已退出，点位数据保持可用');
@@ -1401,17 +1415,48 @@ const togglePoint2CTMode = () => {
 
 // 处理点选择事件
 const handlePointSelection = (pointData) => {
-  if (!isPoint2CTMode.value) return;
+  console.log('handlePointSelection被调用，当前模式：', { isPoint2CTMode: isPoint2CTMode.value });
   
-  console.log('选中点:', pointData);
+  if (!isPoint2CTMode.value) {
+    console.log('不在点2CT模式，跳过处理');
+    return;
+  }
+  
+  console.log('选中点数据:', pointData);
+  
+  // 确保pointData和coordinate存在
+  if (!pointData || !pointData.coordinate) {
+    console.error('无效的点数据或缺少coordinate属性');
+    return;
+  }
+  
+  // 设置选中点状态
   selectedPoint.value = pointData.coordinate;
   selectedPointNormal.value = pointData.normal;
+  console.log('已设置selectedPoint状态:', selectedPoint.value);
   
   // 在渲染器中高亮显示选中的点（红色）
-  plyRenderer.value.highlightPoint(pointData.coordinate, { color: [1, 0, 0] });
+  if (plyRenderer.value && typeof plyRenderer.value.highlightPoint === 'function') {
+    console.log('调用highlightPoint高亮选中点');
+    plyRenderer.value.highlightPoint(pointData.coordinate, { color: [1, 0, 0] });
+  } else {
+    console.error('plyRenderer或highlightPoint方法不存在');
+  }
   
   // 初始化point2CTManager
-  point2CTManager.setSelectedPoint(pointData.coordinate, pointData.normal);
+  if (point2CTManager && typeof point2CTManager.setSelectedPoint === 'function') {
+    console.log('调用point2CTManager.setSelectedPoint设置选中点');
+    point2CTManager.setSelectedPoint(pointData.coordinate, pointData.normal);
+  } else {
+    console.error('point2CTManager或setSelectedPoint方法不存在');
+  }
+  
+  // 重置轴向和角度状态，确保UI正确更新
+  selectedAxis.value = null;
+  firstAngleSet.value = false;
+  secondAngleSet.value = false;
+  thirdAngleSet.value = false;
+  console.log('已重置轴向和角度状态，selectedAxis:', selectedAxis.value);
 };
 
 // 获取单位向量字符串
@@ -1494,6 +1539,7 @@ const currentDisplayedPoint2CTId = ref(null);
 
 // 重置点2CT选点状态
 const resetPoint2CT = () => {
+  console.log('resetPoint2CT: 重置点2CT选点状态');
   selectedPoint.value = null;
   selectedPointNormal.value = null;
   selectedAxis.value = null;
@@ -1505,13 +1551,28 @@ const resetPoint2CT = () => {
   thirdAngleSet.value = false;
   canUploadPoint2CT.value = false;
   
+  // 清除渲染器中的高亮点
+  if (plyRenderer.value && typeof plyRenderer.value.highlightPoint === 'function') {
+    console.log('resetPoint2CT: 清除渲染器中的高亮点');
+    plyRenderer.value.highlightPoint(null);
+  }
+  
   // 清除渲染器中的正方形显示
   if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
+    console.log('resetPoint2CT: 清除渲染器中的正方形显示');
     plyRenderer.value.showSquare(null);
   }
   
-  // 重置point2CTManager
-  point2CTManager.reset();
+  // 重置point2CTManager，使用存在的方法
+  if (typeof point2CTManager.清除选中状态 === 'function') {
+    console.log('resetPoint2CT: 使用清除选中状态方法重置point2CTManager');
+    point2CTManager.清除选中状态();
+  } else if (typeof point2CTManager.reset === 'function') {
+    console.log('resetPoint2CT: 使用reset方法重置point2CTManager');
+    point2CTManager.reset();
+  } else {
+    console.warn('resetPoint2CT: point2CTManager没有找到可用的重置方法');
+  }
 };
 
 // 保存点2CT记录
