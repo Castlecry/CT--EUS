@@ -1961,32 +1961,6 @@ class PlyRenderer {
         }
       }
       
-      // 提取面数据（如果有）
-      const faces = [];
-      const faceDataStart = dataStartIndex + vertexCount;
-      
-      // 如果没有指定面数或者面数为0，尝试从顶点构建简单的四边形
-      if (faceCount === 0 || faceCount === undefined) {
-        console.log('PLY文件没有指定面数据，尝试从顶点构建四边形');
-        
-        // 假设顶点是按顺序排列的，尝试构建四边形
-        if (vertices.length >= 4) {
-          // 假设前四个点形成一个四边形
-          faces.push([0, 1, 2, 3]);
-        }
-      } else {
-        // 解析文件中的面数据
-        for (let i = 0; i < faceCount && faceDataStart + i < lines.length; i++) {
-          const parts = lines[faceDataStart + i].trim().split(/\s+/).map(parseInt);
-          if (parts.length > 0) {
-            // PLY面格式：顶点数 + 顶点索引列表
-            const faceVertexCount = parts[0];
-            const faceVertices = parts.slice(1, 1 + faceVertexCount);
-            faces.push(faceVertices);
-          }
-        }
-      }
-      
       // 创建几何体
       const geometry = new THREE.BufferGeometry();
       
@@ -1999,20 +1973,35 @@ class PlyRenderer {
       });
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       
-      // 如果有面数据，创建三角形面
+      // 创建三角形面索引
       const indices = [];
-      faces.forEach(face => {
-        // 对于每个面，转换为三角形（使用三角剖分）
-        if (face.length >= 3) {
-          for (let i = 1; i < face.length - 1; i++) {
-            indices.push(face[0], face[i], face[i + 1]);
+      const faceDataStart = dataStartIndex + vertexCount;
+      
+      // 首先尝试使用文件中的面数据
+      if (faceCount > 0) {
+        console.log('从PLY文件解析面数据，面数:', faceCount);
+        // 解析文件中的面数据
+        for (let i = 0; i < faceCount && faceDataStart + i < lines.length; i++) {
+          const parts = lines[faceDataStart + i].trim().split(/\s+/).map(parseInt);
+          if (parts.length > 0) {
+            // PLY面格式：顶点数 + 顶点索引列表
+            const faceVertexCount = parts[0];
+            const faceVertices = parts.slice(1, 1 + faceVertexCount);
+            
+            // 对每个面进行三角剖分
+            if (faceVertices.length >= 3) {
+              for (let j = 1; j < faceVertices.length - 1; j++) {
+                indices.push(faceVertices[0], faceVertices[j], faceVertices[j + 1]);
+              }
+            }
           }
         }
-      });
+      }
       
-      // 如果没有面数据但有顶点，尝试创建默认面
+      // 如果没有从文件中获取到面数据，且顶点数足够，创建四边形面
       if (indices.length === 0 && vertices.length >= 4) {
-        console.log('创建默认四边形面');
+        console.log('PLY文件没有面数据，从顶点构建四边形面');
+        // 直接创建两个三角形组成的四边形，使用索引[0,1,2]和[0,2,3]
         indices.push(0, 1, 2, 0, 2, 3);
       }
       
@@ -2095,9 +2084,23 @@ class PlyRenderer {
     this.camera.position.set(center.x, center.y, center.z + cameraZ);
     this.camera.lookAt(center);
     
-    // 更新控制器目标
-    if (this.controls.target) {
-      this.controls.target.copy(center);
+    // 更新控制器目标 - 使用set方法而不是直接修改target对象
+    if (this.controls && typeof this.controls.target === 'object') {
+      try {
+        // 尝试使用set方法设置目标位置
+        if (this.controls.target.set) {
+          this.controls.target.set(center.x, center.y, center.z);
+        } else if (this.controls.target.copy) {
+          // 备用方案：尝试复制新位置
+          this.controls.target.copy(center);
+        }
+      } catch (e) {
+        console.warn('无法更新控制器目标:', e);
+        // 最终备用方案：创建新的Vector3对象
+        if (this.controls && THREE.Vector3) {
+          this.controls.target = new THREE.Vector3(center.x, center.y, center.z);
+        }
+      }
     }
     
     // 更新控制器
