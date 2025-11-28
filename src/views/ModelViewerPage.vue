@@ -27,6 +27,23 @@
               ›
             </button>
           </div>
+          
+          <!-- 器官按钮区域移到顶部 -->
+          <div class="organ-buttons" v-if="currentViewType === 'select'">
+            <button
+              v-for="(organ, key) in organList"
+              :key="key"
+              :class="['organ-btn', {
+                'loaded': loadedOrgans.includes(key),
+                'disabled': isDisabled(key),
+                'loading': loading[key]
+              }]"
+              @click="loadOrganModel(key)"
+              :disabled="isDisabled(key)"
+            >
+              {{ organ }}
+            </button>
+          </div>
         
         </div>
         <!-- 器官选择视图 -->
@@ -45,22 +62,6 @@
             class="organ-buttons-container"
             :style="{ maxHeight: isPanelExpanded ? 'none' : '0px' }"
           >
-            <!-- 器官按钮区域移到顶部 -->
-            <div class="organ-buttons">
-              <button
-                v-for="(organ, key) in organList"
-                :key="key"
-                :class="['organ-btn', {
-                  'loaded': loadedOrgans.includes(key),
-                  'disabled': isDisabled(key),
-                  'loading': loading[key]
-                }]"
-                @click="loadOrganModel(key)"
-                :disabled="isDisabled(key)"
-              >
-                {{ organ }}
-              </button>
-            </div>
             <!-- 全部加载按钮保持在底部 -->
             <div class="organ-panel-footer">
               <button
@@ -130,7 +131,7 @@
                     :disabled="!hasPlyData"
                     :class="{ 'active': isDrawingMode }"
                   >
-                    {{ isDrawingMode ? '结束选择' : '选择点位' }}
+                    {{ isDrawingMode ? '结束绘制' : '绘制轨迹' }}
                   </button>
                   <button 
                     v-if="hasSelectedPoints" 
@@ -325,6 +326,59 @@
                       >
                         {{ isPoint2CTMode ? '退出选点' : '进入选点' }}
                       </button>
+                    </div>
+                    
+                    <!-- 点2CT记录列表 -->
+                    <div class="point2ct-records" v-if="point2CTRecords.length > 0">
+                      <h5>点2CT记录</h5>
+                      <div class="records-list">
+                        <div 
+                          v-for="record in point2CTRecords" 
+                          :key="record.id"
+                          class="record-item"
+                          :class="{ active: currentDisplayedPoint2CTId === record.id }"
+                          @click="displayPoint2CTRecord(record.id)"
+                        >
+                          <div class="record-header">
+                            <span class="record-time">{{ new Date(record.timestamp).toLocaleString() }}</span>
+                            <button 
+                              class="delete-record-btn"
+                              @click.stop="deletePoint2CTRecord(record.id)"
+                              title="删除记录"
+                            >
+                              删除
+                            </button>
+                          </div>
+                          <div class="record-details">
+                            <div class="point-info">
+                              <span class="label">点坐标：</span>
+                              <span class="value">
+                                ({{ record.point.coordinate.x.toFixed(2) }}, 
+                                {{ record.point.coordinate.y.toFixed(2) }}, 
+                                {{ record.point.coordinate.z.toFixed(2) }})
+                              </span>
+                            </div>
+                            <div class="angles-info">
+                              <span class="label">轴向：</span>
+                              <span class="value">{{ record.angles.axis }}</span>
+                              <span class="label"> 角度：</span>
+                              <span class="value">{{ record.angles.angle1 }}°, {{ record.angles.angle2 }}°, {{ record.angles.angle3 }}°</span>
+                            </div>
+                            <div class="files-info">
+                              <span class="label">文件：</span>
+                              <span class="value">
+                                <span v-if="record.files.ply">PLY模型</span>
+                                <span v-if="record.files.png1">PNG1</span>
+                                <span v-if="record.files.png2">PNG2</span>
+                              </span>
+                            </div>
+                            <div class="record-images" v-if="record.files.png1 || record.files.png2">
+                              <img v-if="record.files.png1" :src="record.files.png1" class="record-image" :alt="'渲染图1'" @click.stop="displayRenderImage(record.files.png1, '渲染图1')" />
+                              <img v-if="record.files.png2" :src="record.files.png2" class="record-image" :alt="'渲染图2'" @click.stop="displayRenderImage(record.files.png2, '渲染图2')" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     
                     <!-- 选点状态提示 -->
@@ -769,6 +823,9 @@ const isDrawingMode = ref(false); // 线段绘制模式状态
 const hasSelectedPoints = ref(false); // 是否已选择点位
 const normalsVisible = ref(false); // 法向量是否可见
 
+// 共享点位存储 - 用于绘制轨迹和点2CT功能共享
+const sharedPoints = ref([]);
+
 // 轨迹历史记录状态
 const showTrajectoryHistory = ref(false);
 const trajectoryHistory = ref([]);
@@ -842,6 +899,43 @@ const getModelDetail = (organKey) => {
 // 检查按钮是否应禁用
 const isDisabled = (organKey) => {
   return loadedOrgans.value.includes(organKey) || loading.value[organKey] || allLoaded.value;
+};
+
+// 处理共享点位点击
+const handlePointClick = (pointData) => {
+  // 参数验证
+  if (!pointData || !pointData.coordinate) {
+    console.error('无效的点数据：缺少必要的坐标信息');
+    return;
+  }
+  
+  try {
+    // 保存到共享点位
+    sharedPoints.value.push({
+      coordinate: pointData.coordinate,
+      normal: pointData.normal,
+      timestamp: Date.now()
+    });
+    console.log('共享点位已添加:', pointData.coordinate);
+    
+    // 根据当前模式进行不同处理
+    if (isDrawingMode.value) {
+      // 绘制模式：继续绘制轨迹
+      console.log('绘制轨迹模式：点位已添加到绘制队列');
+    } else if (isPoint2CTMode.value) {
+      // 点2CT模式：处理点选择
+      if (typeof handlePointSelection === 'function') {
+        handlePointSelection(pointData);
+        console.log('点2CT模式：已选中点，请选择轴单位向量');
+      } else {
+        console.error('handlePointSelection函数未定义');
+      }
+    } else {
+      console.warn('未在任何模式下点击，点位已保存到共享点位但未进行其他处理');
+    }
+  } catch (error) {
+    console.error('处理点位点击时发生错误:', error);
+  }
 };
 
 // 切换面板展开/收起
@@ -1147,8 +1241,15 @@ const toggleDrawingMode = () => {
     selectedModelKey: selectedModelKey.value,
     rendererReady: rendererReady.value,
     plyRenderer: !!plyRenderer.value,
-    hasPlyData: hasPlyData.value
+    hasPlyData: hasPlyData.value,
+    isPoint2CTMode: isPoint2CTMode.value
   });
+
+  // 如果当前在点2CT模式，先退出点2CT模式
+  if (isPoint2CTMode.value) {
+    console.log('当前在点2CT模式，正在退出...');
+    togglePoint2CTMode();
+  }
 
   if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value || !hasPlyData.value) {
     console.log('toggleDrawingMode条件不满足，提前返回');
@@ -1168,9 +1269,8 @@ const toggleDrawingMode = () => {
       // 添加详细状态指示和日志
       if (isDrawingMode.value) {
         console.log('进入绘制模式：模型已固定，可在表面绘制平滑轨迹');
-        plyRenderer.value.enableSnapToClosestPoint((point) => {
-          console.log('吸附到最近点:', point);
-        });
+        // 启用吸附功能，使用共享点位处理函数
+        plyRenderer.value.enableSnapToClosestPoint(handlePointClick);
         // 重置当前显示的轨迹ID
         currentDisplayedTrajectoryId.value = null;
       } else {
@@ -1255,27 +1355,41 @@ const switchToDetailView = (organKey) => {
 
 // 切换点2CT选点模式
 const togglePoint2CTMode = () => {
+  console.log('togglePoint2CTMode开始执行', { 
+    selectedModelKey: selectedModelKey.value,
+    rendererReady: rendererReady.value,
+    plyRenderer: !!plyRenderer.value,
+    isDrawingMode: isDrawingMode.value
+  });
+
   if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value) {
     alert('请先加载模型后再进入选点模式');
     return;
+  }
+  
+  // 如果当前在绘制模式，先退出绘制模式
+  if (isDrawingMode.value) {
+    console.log('当前在绘制模式，正在退出...');
+    toggleDrawingMode();
   }
   
   isPoint2CTMode.value = !isPoint2CTMode.value;
   
   if (isPoint2CTMode.value) {
     console.log('进入点2CT选点模式');
-    // 启用吸附功能，将阈值从5增加到15
-    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
+    // 启用吸附功能，将阈值从5增加到15，使用共享点位处理函数
+    plyRenderer.value.enableSnapToClosestPoint(handlePointClick, 15);
     // 重置选点状态
     resetPoint2CT();
   } else {
     console.log('退出点2CT选点模式');
-    // 禁用吸附功能
+    // 禁用吸附功能，但保留点位数据供绘制模式使用
     plyRenderer.value.disableSnapToClosestPoint();
     // 清除选中点的高亮
     if (selectedPoint.value) {
       plyRenderer.value.highlightPoint(null);
     }
+    console.log('点2CT模式已退出，点位数据保持可用');
   }
 };
 
@@ -1305,18 +1419,8 @@ const selectUnitVector = (axis) => {
   selectedAxis.value = axis;
   const unitVector = getUnitVector(axis);
   
-  // 设置单位向量并生成初始正方形
+  // 设置单位向量
   point2CTManager.setUnitVector(unitVector);
-  point2CTManager.generateSquare();
-  
-  // 在渲染器中显示正方形，添加参数验证
-  const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function' && 
-      squarePoints && Array.isArray(squarePoints) && squarePoints.length === 4) {
-    plyRenderer.value.showSquare(squarePoints, { color: [0, 1, 1], lineWidth: 2 });
-  } else {
-    console.warn('无法显示正方形：无效的点数据或渲染器方法');
-  }
 };
 
 // 更新第一个角度
@@ -1326,15 +1430,8 @@ const updateFirstAngle = () => {
   // 确保角度在有效范围内
   const angle = Math.max(0, Math.min(180, firstAngle.value || 0));
   
-  // 围绕法向量旋转
-  point2CTManager.rotateAroundNormal(angle);
-  
-  // 更新渲染器中的正方形显示
-  const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function' && 
-      squarePoints && Array.isArray(squarePoints) && squarePoints.length === 4) {
-    plyRenderer.value.showSquare(squarePoints, { color: [0, 1, 1], lineWidth: 2 });
-  }
+  // 围绕法向量旋转（数据处理，不显示）
+  point2CTManager.setFirstAngle(angle);
 };
 
 // 确认第一个角度
@@ -1350,22 +1447,8 @@ const updateSecondAngle = () => {
   // 确保角度在有效范围内
   const angle = Math.max(0, Math.min(180, secondAngle.value || 0));
   
-  // 围绕选择的轴向旋转
-  point2CTManager.rotateAroundUnitVector(angle);
-  
-  // 更新渲染器中的正方形显示
-  const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function' && 
-      squarePoints && Array.isArray(squarePoints) && squarePoints.length === 4) {
-    plyRenderer.value.showSquare(squarePoints, { color: [0, 1, 1], lineWidth: 2 });
-  }
-};
-
-// 清除旋转辅助显示
-const clearRotationVisuals = () => {
-  if (plyRenderer.value && typeof plyRenderer.value.clearSquare === 'function') {
-    plyRenderer.value.clearSquare();
-  }
+  // 围绕选择的轴向旋转（数据处理，不显示）
+  point2CTManager.setSecondAngle(angle);
 };
 
 // 确认第二个角度
@@ -1398,6 +1481,11 @@ const confirmThirdAngle = () => {
   console.log('确认第三个角度:', thirdAngle.value);
 };
 
+// 点2CT记录数组
+const point2CTRecords = ref([]);
+// 当前显示的点2CT记录ID
+const currentDisplayedPoint2CTId = ref(null);
+
 // 重置点2CT选点状态
 const resetPoint2CT = () => {
   selectedPoint.value = null;
@@ -1420,6 +1508,104 @@ const resetPoint2CT = () => {
   point2CTManager.reset();
 };
 
+// 保存点2CT记录
+const savePoint2CTRecord = (pointData, angles, uploadedFiles) => {
+  const newRecord = {
+    id: `point2ct_${Date.now()}`,
+    point: pointData,
+    angles: angles,
+    files: uploadedFiles,
+    timestamp: new Date().toISOString()
+  };
+  
+  point2CTRecords.value.unshift(newRecord); // 添加到列表开头
+  console.log('保存点2CT记录:', newRecord);
+  return newRecord.id;
+};
+
+// 显示点2CT记录
+const displayPoint2CTRecord = (recordId) => {
+  if (!plyRenderer.value || isDrawingMode.value) return;
+  
+  try {
+    // 先隐藏当前显示的记录
+    if (currentDisplayedPoint2CTId.value) {
+      hidePoint2CTRecord();
+    }
+    
+    // 查找记录
+    const record = point2CTRecords.value.find(r => r.id === recordId);
+    if (!record) {
+      console.error('点2CT记录不存在');
+      return;
+    }
+    
+    // 高亮显示选中的点
+    if (plyRenderer.value && typeof plyRenderer.value.highlightPoint === 'function') {
+      plyRenderer.value.highlightPoint(record.point.coordinate, { color: [1, 0, 0] });
+    }
+    
+    // 显示ZIP解压的PLY文件生成的面
+    if (record.files && record.files.ply && typeof plyRenderer.value.renderPLY === 'function') {
+      plyRenderer.value.renderPLY(record.files.ply, '#00FF00');
+    }
+    
+    currentDisplayedPoint2CTId.value = recordId;
+    console.log('显示点2CT记录:', recordId);
+  } catch (error) {
+    console.error('显示点2CT记录失败:', error);
+  }
+};
+
+// 隐藏点2CT记录
+const hidePoint2CTRecord = () => {
+  if (!plyRenderer.value) return;
+  
+  try {
+    // 清除点高亮
+    if (typeof plyRenderer.value.highlightPoint === 'function') {
+      plyRenderer.value.highlightPoint(null);
+    }
+    
+    // 清除PLY模型显示
+    if (typeof plyRenderer.value.clearPLY === 'function') {
+      plyRenderer.value.clearPLY();
+    }
+    
+    currentDisplayedPoint2CTId.value = null;
+    console.log('隐藏点2CT记录');
+  } catch (error) {
+    console.error('隐藏点2CT记录失败:', error);
+  }
+};
+
+// 删除点2CT记录
+const deletePoint2CTRecord = (recordId) => {
+  try {
+    // 如果删除的是当前显示的记录，先隐藏
+    if (recordId === currentDisplayedPoint2CTId.value) {
+      hidePoint2CTRecord();
+    }
+    
+    // 从列表中删除
+    const index = point2CTRecords.value.findIndex(r => r.id === recordId);
+    if (index !== -1) {
+      // 释放URL对象
+      const record = point2CTRecords.value[index];
+      if (record.files) {
+        if (record.files.ply) URL.revokeObjectURL(record.files.ply);
+        if (record.files.png1) URL.revokeObjectURL(record.files.png1);
+        if (record.files.png2) URL.revokeObjectURL(record.files.png2);
+      }
+      
+      point2CTRecords.value.splice(index, 1);
+      console.log('删除点2CT记录:', recordId);
+    }
+  } catch (error) {
+    console.error('删除点2CT记录失败:', error);
+  }
+};
+
 // 上传点2CT参数（自定义函数）
 const handleUploadPoint2CTParams = async () => {
   if (!canUploadPoint2CT.value || !batchId) return;
@@ -1431,7 +1617,12 @@ const handleUploadPoint2CTParams = async () => {
   
   try {
     // 准备上传参数
-    const params = point2CTManager.getUploadData();
+    // 使用正确的方法名获取上传数据，确保JSON格式符合要求
+    const params = point2CTManager.获取上传数据();
+    
+    if (!params) {
+      throw new Error('无法获取有效的上传参数');
+    }
     
     console.log('上传点2CT参数:', params);
     
@@ -1441,29 +1632,55 @@ const handleUploadPoint2CTParams = async () => {
     if (response && response.files) {
       console.log('上传成功，获取到ZIP解压文件:', response);
       
+      // 保存记录所需的数据
+      const uploadedFiles = {};
+      const savedPointData = {
+        coordinate: selectedPoint.value,
+        normal: selectedPointNormal.value
+      };
+      const savedAngles = {
+        axis: selectedAxis.value,
+        angle1: firstAngle.value,
+        angle2: secondAngle.value,
+        angle3: thirdAngle.value
+      };
+      
       // 设置成功状态
       uploadSuccess.value = true;
       uploadMessage.value = '模型生成成功！正在加载...';
       
       // 处理并显示生成的PLY模型
-      if (renderer.value && plyRenderer) {
+      if (renderer.value && plyRenderer.value) {
         // 查找PLY文件
         const plyFile = response.files.find(file => file.name.endsWith('.ply'));
         
         if (plyFile && plyFile.blobUrl) {
+          uploadedFiles.ply = plyFile.blobUrl;
+          
           // 使用plyRenderer渲染模型，使用绿色显示面
-          await plyRenderer.renderPLY(plyFile.blobUrl, '#00FF00');
+          await plyRenderer.value.renderPLY(plyFile.blobUrl, '#00FF00');
           
           // 保存生成的PLY URL，以便后续使用或清理
           generatedPlyUrl.value = plyFile.blobUrl;
           
           // 查找PNG文件（渲染图片）
-          const pngFile = response.files.find(file => file.name.endsWith('.png'));
-          if (pngFile && pngFile.blobUrl) {
-            console.log('找到渲染图片:', pngFile.name);
-            // 显示PNG渲染图片
-            displayRenderImage(pngFile.blobUrl, pngFile.name);
+          const pngFiles = response.files.filter(file => file.name.endsWith('.png'));
+          if (pngFiles.length > 0) {
+            // 保存第一个和第二个PNG文件
+            if (pngFiles[0]) {
+              uploadedFiles.png1 = pngFiles[0].blobUrl;
+              console.log('找到渲染图片1:', pngFiles[0].name);
+              // 显示第一个PNG渲染图片
+              displayRenderImage(pngFiles[0].blobUrl, pngFiles[0].name);
+            }
+            if (pngFiles[1]) {
+              uploadedFiles.png2 = pngFiles[1].blobUrl;
+              console.log('找到渲染图片2:', pngFiles[1].name);
+            }
           }
+          
+          // 保存点2CT记录
+          savePoint2CTRecord(savedPointData, savedAngles, uploadedFiles);
           
           uploadMessage.value = '模型已成功加载和显示！';
           console.log('PLY模型渲染成功');
@@ -2015,4 +2232,130 @@ const deleteHistoryTrajectory = (trajectoryId) => {
   }
 };
 </script>
+
+<style scoped>
+/* 点2CT记录样式 */
+.point2ct-records {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.point2ct-records h5 {
+  margin-bottom: 15px;
+  color: #495057;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.records-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.record-item {
+  padding: 12px;
+  margin-bottom: 10px;
+  background-color: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.record-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.1);
+}
+
+.record-item.active {
+  border-color: #007bff;
+  background-color: #e7f3ff;
+}
+
+.record-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.record-time {
+  font-size: 12px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.delete-record-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.delete-record-btn:hover {
+  background-color: #c82333;
+}
+
+.record-details {
+  font-size: 14px;
+}
+
+.record-details .label {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.record-details .value {
+  color: #495057;
+  font-weight: 600;
+}
+
+.point-info,
+.angles-info,
+.files-info {
+  margin-bottom: 8px;
+}
+
+.record-images {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.record-image {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.record-image:hover {
+  transform: scale(1.05);
+  border-color: #007bff;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .record-images {
+    flex-direction: column;
+  }
+  
+  .record-image {
+    width: 100%;
+    height: auto;
+  }
+}
+</style>
 

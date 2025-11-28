@@ -532,9 +532,11 @@ class PlyRenderer {
       console.log('控制器已重新启用');
     }
 
-    // 清理吸附设置
+    // 清理吸附设置，但保留点位数据供其他功能使用
     this.snapEnabled = false;
     this.snapCallback = null;
+    
+    console.log('绘制模式已退出，点位数据保持可用');
   }
 
   /**
@@ -546,11 +548,45 @@ class PlyRenderer {
     // 对于点2CT模式，检查snapEnabled而不仅是isDrawing
     if (!this.isDrawing && !this.snapEnabled) return;
 
-    // 点2CT模式下不需要拖动状态
-    if (this.isDrawing) {
-      this.isDragging = true;
+    // 点2CT模式下的点击处理
+    if (this.snapEnabled && !this.isDrawing) {
+      this._updateMousePosition(event);
+      
+      // 检查是否有当前吸附的点
+      if (this.currentClosestPoint && this.currentPointNormal) {
+        // 调用回调函数，传递点坐标和法向量信息
+        if (this.snapCallback) {
+          this.snapCallback({
+            point: this.currentClosestPoint,
+            normal: this.currentPointNormal
+          });
+        }
+      } else {
+        // 如果没有吸附到点，尝试重新查找最近点
+        const closestPointInfo = this._findClosestPoint(this.mouse);
+        if (closestPointInfo && closestPointInfo.coordinate && this.snapCallback) {
+          // 获取摄像机前方方向
+          const cameraForward = new THREE.Vector3();
+          this.camera.getWorldDirection(cameraForward);
+          
+          // 验证吸附点是否在摄像机可见方向
+          const directionToPoint = new THREE.Vector3().subVectors(closestPointInfo.coordinate, this.camera.position).normalize();
+          const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
+          const forwardDot = directionToPoint.dot(cameraForward);
+          
+          if (dotProduct > 0.95 && forwardDot > 0) {
+            this.snapCallback({
+              point: closestPointInfo.coordinate,
+              normal: closestPointInfo.normal
+            });
+          }
+        }
+      }
+      return;
     }
-    
+
+    // 绘制模式下的处理
+    this.isDragging = true;
     this._updateMousePosition(event);
     this._addPointAtMouse(event);
   }
@@ -561,10 +597,22 @@ class PlyRenderer {
    * @param {MouseEvent} event - 鼠标事件
    */
   _onMouseMove(event) {
-    if (!this.isDrawing || !this.isDragging) return;
-
     this._updateMousePosition(event);
     
+    // 对于点2CT模式，只在snapEnabled为true时执行吸附逻辑
+    if (this.snapEnabled && !this.isDrawing) {
+      const now = Date.now();
+      // 添加节流逻辑，限制点的检查频率
+      if (!this.lastSnapCheckTime || now - this.lastSnapCheckTime > 50) { // 每50ms最多检查一次
+        this._checkAndHighlightClosestPoint();
+        this.lastSnapCheckTime = now;
+      }
+      return;
+    }
+    
+    // 绘制模式下的逻辑
+    if (!this.isDrawing || !this.isDragging) return;
+
     // 添加节流逻辑，限制点的添加频率
     const now = Date.now();
     if (!this.lastAddPointTime || now - this.lastAddPointTime > 50) { // 每50ms最多添加一个点
@@ -576,6 +624,42 @@ class PlyRenderer {
     if (!this.lastUpdatePreviewTime || now - this.lastUpdatePreviewTime > 100) { // 每100ms最多更新一次预览
       this._updateTrajectoryPreview();
       this.lastUpdatePreviewTime = now;
+    }
+  }
+  
+  /**
+   * 检查并高亮显示最近的点（用于点2CT模式）
+   * @private
+   */
+  _checkAndHighlightClosestPoint() {
+    if (!this.snapEnabled || !this.currentModel || !this.pointsData.has(this.currentModel)) return;
+    
+    const closestPointInfo = this._findClosestPoint(this.mouse);
+    if (closestPointInfo && closestPointInfo.coordinate) {
+      // 获取摄像机前方方向
+      const cameraForward = new THREE.Vector3();
+      this.camera.getWorldDirection(cameraForward);
+      
+      // 验证吸附点是否在摄像机可见方向
+      const directionToPoint = new THREE.Vector3().subVectors(closestPointInfo.coordinate, this.camera.position).normalize();
+      const dotProduct = directionToPoint.dot(this.raycaster.ray.direction);
+      const forwardDot = directionToPoint.dot(cameraForward);
+      
+      // 严格检查：点必须在摄像机前方（与摄像机朝向夹角小于90度）且与射线方向高度一致
+      if (dotProduct > 0.95 && forwardDot > 0) {
+        // 高亮显示最近的点
+        this.highlightPoint(closestPointInfo.coordinate);
+        // 保存当前最近点信息
+        this.currentClosestPoint = closestPointInfo.coordinate;
+        this.currentPointNormal = closestPointInfo.normal;
+        return;
+      }
+    }
+    
+    // 如果没有找到合适的点，清除高亮
+    if (this.currentClosestPoint) {
+      this.highlightPoint(null);
+      this.currentClosestPoint = null;
     }
   }
 
@@ -1706,64 +1790,6 @@ class PlyRenderer {
    */
   getDrawingState() {
     return this.isDrawing;
-  }
-  
-  /**
-   * 显示正方形
-   * @param {Array<THREE.Vector3>} squarePoints - 正方形的四个顶点
-   * @param {Object} options - 显示选项
-   */
-  showSquare(squarePoints, options = {}) {
-    if (!this.scene || !squarePoints || squarePoints.length !== 4) {
-      console.error('无效的正方形点数据');
-      return;
-    }
-    
-    // 清除之前的正方形
-    this.clearSquare();
-    
-    const color = options.color || [0, 1, 1]; // 默认青色
-    const lineWidth = options.lineWidth || 2; // 默认线宽
-    
-    // 创建线条的顶点数组（包括闭合的线）
-    const points = [...squarePoints];
-    points.push(squarePoints[0]); // 闭合正方形
-    
-    // 创建线几何体
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    
-    // 创建线材质
-    const material = new THREE.LineBasicMaterial({
-      color: new THREE.Color(...color),
-      linewidth: lineWidth,
-      transparent: true,
-      opacity: 0.9
-    });
-    
-    // 创建线对象
-    this.squareObject = new THREE.LineLoop(geometry, material);
-    
-    // 添加到场景
-    this.scene.add(this.squareObject);
-    
-    console.log('显示正方形，顶点数:', squarePoints.length);
-    
-    // 强制渲染
-    this.render();
-  }
-  
-  /**
-   * 清除正方形显示
-   */
-  clearSquare() {
-    if (this.squareObject && this.scene) {
-      this.scene.remove(this.squareObject);
-      this.squareObject.geometry.dispose();
-      this.squareObject.material.dispose();
-      this.squareObject = null;
-      console.log('已清除正方形显示');
-      this.render();
-    }
   }
 
   /**

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 /**
  * 点2CT功能工具类
- * 完整实现：支持点选择、轴向选择、角度设置和几何变换
+ * 简化实现：仅支持点选择、轴向选择和角度设置的数据收集
  */
 class Point2CTManager {
   constructor() {
@@ -24,14 +24,6 @@ class Point2CTManager {
     this.旋转角度3 = 0;
     // 批次ID
     this.batchId = '';
-    // 正方形点数据
-    this.squarePoints = [];
-    // 初始坐标系（用于旋转计算）
-    this.initialAxes = {
-      normal: null,
-      tangent: null,
-      binormal: null
-    };
   }
 
   /**
@@ -225,8 +217,7 @@ class Point2CTManager {
       axisChar: this.axisChar,
       unitVector: { x: this.unitVector.x, y: this.unitVector.y, z: this.unitVector.z },
       angles: { angle1: this.旋转角度1, angle2: this.旋转角度2, angle3: this.旋转角度3 },
-      sideLength: this.正方形边长,
-      hasSquare: this.squarePoints.length > 0
+      sideLength: this.正方形边长
     };
   }
 
@@ -242,121 +233,27 @@ class Point2CTManager {
   }
 
   /**
-   * 生成初始正方形
+   * 设置第一个角度（围绕法向量）
+   * @param {number} angle - 旋转角度（度数）
+   * @returns {number} 设置后的角度值
    */
-  generateSquare() {
-    if (!this.选中的点 || !this.选中点法向量 || !this.unitVector) {
-      console.error('无法生成正方形：缺少必要的点或向量信息');
-      return;
-    }
-
-    // 确保法向量和单位向量正交
-    const normal = this.选中点法向量.clone().normalize();
-    let tangent = new THREE.Vector3().crossVectors(normal, this.unitVector).normalize();
-    let binormal = new THREE.Vector3().crossVectors(normal, tangent).normalize();
-
-    // 保存初始坐标系
-    this.initialAxes = {
-      normal: normal.clone(),
-      tangent: tangent.clone(),
-      binormal: binormal.clone()
-    };
-
-    // 计算正方形的四个顶点
-    const halfSide = this.正方形边长 / 2;
-    const points = [
-      this.选中的点.clone().add(tangent.clone().multiplyScalar(-halfSide)).add(binormal.clone().multiplyScalar(-halfSide)),
-      this.选中的点.clone().add(tangent.clone().multiplyScalar(halfSide)).add(binormal.clone().multiplyScalar(-halfSide)),
-      this.选中的点.clone().add(tangent.clone().multiplyScalar(halfSide)).add(binormal.clone().multiplyScalar(halfSide)),
-      this.选中的点.clone().add(tangent.clone().multiplyScalar(-halfSide)).add(binormal.clone().multiplyScalar(halfSide))
-    ];
-
-    this.squarePoints = points;
-    console.log('生成正方形，边长:', this.正方形边长);
+  setFirstAngle(angle) {
+    // 限制角度范围在0-180度
+    this.旋转角度1 = Math.max(0, Math.min(180, angle));
+    console.log(`设置第一个角度: ${this.旋转角度1}度`);
+    return this.旋转角度1;
   }
 
   /**
-   * 获取正方形的顶点
-   * @returns {Array<THREE.Vector3>} 正方形的四个顶点
+   * 设置第二个角度（围绕选择的轴向）
+   * @param {number} angle - 旋转角度（度数）
+   * @returns {number} 设置后的角度值
    */
-  getSquarePoints() {
-    return this.squarePoints;
-  }
-
-  /**
-   * 围绕法向量旋转
-   * @param {number} angle - 旋转角度（度）
-   */
-  rotateAroundNormal(angle) {
-    if (!this.选中的点 || !this.选中点法向量 || this.squarePoints.length === 0) {
-      console.error('无法旋转：缺少必要的点或向量信息');
-      return;
-    }
-
-    this.旋转角度1 = angle;
-    const radians = THREE.MathUtils.degToRad(angle);
-    const normal = this.选中点法向量.clone().normalize();
-    const center = this.选中的点.clone();
-
-    // 创建旋转矩阵
-    const rotationMatrix = new THREE.Matrix4().makeRotationAxis(normal, radians);
-
-    // 对每个点应用旋转
-    this.squarePoints = this.squarePoints.map(point => {
-      const relativePoint = point.clone().sub(center);
-      relativePoint.applyMatrix4(rotationMatrix);
-      return relativePoint.add(center);
-    });
-
-    console.log(`围绕法向量旋转 ${angle}°`);
-  }
-
-  /**
-   * 围绕单位向量旋转
-   * @param {number} angle - 旋转角度（度）
-   */
-  rotateAroundUnitVector(angle) {
-    if (!this.选中的点 || !this.unitVector || this.squarePoints.length === 0) {
-      console.error('无法旋转：缺少必要的点或向量信息');
-      return;
-    }
-
-    this.旋转角度2 = angle;
-    const radians = THREE.MathUtils.degToRad(angle);
-    const axis = this.unitVector.clone().normalize();
-    const center = this.选中的点.clone();
-
-    // 创建旋转矩阵
-    const rotationMatrix = new THREE.Matrix4().makeRotationAxis(axis, radians);
-
-    // 对每个点应用旋转
-    this.squarePoints = this.squarePoints.map(point => {
-      const relativePoint = point.clone().sub(center);
-      relativePoint.applyMatrix4(rotationMatrix);
-      return relativePoint.add(center);
-    });
-
-    console.log(`围绕单位向量旋转 ${angle}°`);
-  }
-
-  /**
-   * 重新计算正方形（用于状态重置）
-   */
-  recalculateSquare() {
-    this.generateSquare();
-  }
-
-  /**
-   * 清除正方形数据
-   */
-  clearSquare() {
-    this.squarePoints = [];
-    this.initialAxes = {
-      normal: null,
-      tangent: null,
-      binormal: null
-    };
-    console.log('已清除正方形数据');
+  setSecondAngle(angle) {
+    // 限制角度范围在0-180度
+    this.旋转角度2 = Math.max(0, Math.min(180, angle));
+    console.log(`设置第二个角度: ${this.旋转角度2}度`);
+    return this.旋转角度2;
   }
 
   /**
@@ -368,8 +265,6 @@ class Point2CTManager {
     this.选中的点 = point;
     this.选中点法向量 = normal;
     console.log('设置选中点:', point ? point.toArray() : null);
-    // 清除之前的正方形，等待重新生成
-    this.clearSquare();
   }
 }
 
@@ -386,10 +281,8 @@ export const {
   清除选中状态,
   设置批次ID,
   setUnitVector,
-  generateSquare,
-  getSquarePoints,
-  rotateAroundNormal,
-  rotateAroundUnitVector,
+  setFirstAngle,
+  setSecondAngle,
   setSelectedPoint
 } = point2CTManager;
 
