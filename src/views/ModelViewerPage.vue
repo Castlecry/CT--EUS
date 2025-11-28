@@ -1383,6 +1383,15 @@ const togglePoint2CTMode = () => {
       plyRenderer.value.setCurrentModel(organName);
       console.log('点2CT模式：已设置当前模型', organName);
     }
+    
+    // 设置batchId给point2CTManager
+    if (batchId) {
+      point2CTManager.setBatchId(batchId);
+      console.log('点2CT模式：已设置batchId:', batchId);
+    } else {
+      console.warn('点2CT模式：batchId为空，请检查URL参数');
+    }
+    
     // 启用吸附功能，将阈值从5增加到15，使用共享点位处理函数
     plyRenderer.value.enableSnapToClosestPoint(handlePointClick, 15);
     // 重置选点状态
@@ -1498,8 +1507,8 @@ const confirmSecondAngle = () => {
 const updateThirdAngle = () => {
   if (!secondAngleSet.value) return;
   
-  // 围绕面法向量旋转
-  point2CTManager.rotateAroundFaceNormal(thirdAngle.value);
+  // 围绕面法向量旋转 - 修复函数名拼写
+  point2CTManager.rotateAroundFacenormal(thirdAngle.value);
   
   // 更新渲染器中的正方形显示
   const squarePoints = point2CTManager.getSquarePoints();
