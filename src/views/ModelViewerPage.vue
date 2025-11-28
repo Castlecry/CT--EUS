@@ -1391,8 +1391,8 @@ const togglePoint2CTMode = () => {
       console.warn('点2CT模式：batchId为空，请检查URL参数');
     }
     
-    // 启用吸附功能，将阈值从5增加到15，使用共享点位处理函数
-    plyRenderer.value.enableSnapToClosestPoint(handlePointClick, 15);
+    // 启用吸附功能，将阈值从5增加到15，使用正确的点位处理函数
+    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
     // 重置选点状态
     resetPoint2CT();
     
