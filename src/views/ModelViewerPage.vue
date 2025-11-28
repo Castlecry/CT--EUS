@@ -617,17 +617,7 @@
                     
                     <!-- 上传表单 -->
                     <div class="image2point-form">
-                      <div class="form-group">
-                        <label for="batchIdInput">Batch ID</label>
-                        <input 
-                          id="batchIdInput"
-                          type="text" 
-                          v-model="image2PointBatchId" 
-                          placeholder="请输入Batch ID"
-                          class="batch-id-input"
-                        >
-                      </div>
-                      
+
                       <div class="form-group">
                         <label for="imageUploadInput">上传图像</label>
                         <input 
@@ -913,7 +903,7 @@ const clearUploadedFile = () => {
 };
 
 const canSubmitImage2Point = computed(() => {
-  return image2PointBatchId.value.trim() !== '' && uploadedFile.value !== null;
+  return batchId !== undefined && batchId !== null && batchId !== '' && uploadedFile.value !== null;
 });
 
 const submitImage2Point = async () => {
@@ -925,7 +915,7 @@ const submitImage2Point = async () => {
   
   try {
     // 调用image2PointManager的uploadImage方法
-    const result = await image2PointManager.value.uploadImage(image2PointBatchId.value, uploadedFile.value);
+    const result = await image2PointManager.value.uploadImage(batchId, uploadedFile.value);
     
     if (result && result.success && result.data) {
       const { ctImage, eusImage, points } = result.data;
@@ -964,7 +954,7 @@ const submitImage2Point = async () => {
       const record = {
         id: Date.now().toString(),
         timestamp: new Date().toISOString(),
-        batchId: image2PointBatchId.value,
+        batchId: batchId,
         uploadedFileName: uploadedFile.value?.name || '',
         files: {
           ct: ctImageUrl.value,
@@ -1092,7 +1082,7 @@ const allLoaded = ref(false);
 
 // 图像2点功能相关状态
 const image2PointManager = ref(null);
-const image2PointBatchId = ref('');
+// 不再需要用户输入batchId，直接使用路由中的batchId
 const uploadedFile = ref(null);
 const uploadedFileName = ref('');
 const ctImageUrl = ref('');
@@ -2076,8 +2066,12 @@ const handleUploadPoint2CTParams = async () => {
         if (plyFile && plyFile.url) {
           uploadedFiles.ply = plyFile.url;
           
+          // 确保PlyRenderer已初始化完成
+          if (plyRenderer.value && plyRenderer.value._initPromise) {
+            await plyRenderer.value._initPromise;
+          }
           // 使用plyRenderer渲染模型，使用绿色显示面
-          await plyRenderer.value.renderPLY(plyFile.blobUrl, '#00FF00');
+          await plyRenderer.value.renderPLY(plyFile.url, '#00FF00');
           
           // 保存生成的PLY URL，以便后续使用或清理
           generatedPlyUrl.value = plyFile.url;
