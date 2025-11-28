@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { toRaw } from 'vue';
 import PlyHistoryManager from './plyHistory';
 
 /**
@@ -48,11 +49,17 @@ class PlyRenderer {
         checkInit();
       });
 
-      // 获取渲染器组件
-      this.scene = this.modelRenderer.scene;
-      this.camera = this.modelRenderer.camera;
-      this.renderer = this.modelRenderer.renderer;
-      this.controls = this.modelRenderer.controls;
+      // 获取渲染器组件，并确保使用原始对象（避免Vue响应式代理）
+      this.scene = toRaw(this.modelRenderer.scene);
+      this.camera = toRaw(this.modelRenderer.camera);
+      this.renderer = toRaw(this.modelRenderer.renderer);
+      this.controls = toRaw(this.modelRenderer.controls);
+      
+      // 打印对象类型以验证是否被代理
+      console.log('Scene对象类型:', this.scene.constructor.name);
+      console.log('Camera对象类型:', this.camera.constructor.name);
+      console.log('Renderer对象类型:', this.renderer.constructor.name);
+      console.log('Controls对象类型:', this.controls.constructor.name);
 
       // 初始化PLY数据存储
       this.pointsObjects = new Map(); // 存储已渲染的点云对象
@@ -1934,10 +1941,12 @@ class PlyRenderer {
       });
       
       // 确保获取原始的Three.js对象，避免Vue响应式代理问题
-      const rawCamera = this.camera;
-      const rawScene = this.scene;
-      const rawRenderer = this.renderer;
-      const rawControls = this.controls;
+      const rawCamera = toRaw(this.camera);
+      const rawScene = toRaw(this.scene);
+      const rawRenderer = toRaw(this.renderer);
+      const rawControls = toRaw(this.controls);
+      
+      console.log('使用原始对象进行渲染操作');
       
       // 解析PLY头部
       let vertexCount = 0;
@@ -2049,15 +2058,15 @@ class PlyRenderer {
       // 给网格添加名称，以便后续可以找到并删除
       mesh.name = 'point2CTGeneratedMesh';
       
-      // 移除之前可能存在的相同名称的网格
-      const existingMesh = this.scene.getObjectByName('point2CTGeneratedMesh');
+      // 移除之前可能存在的相同名称的网格（使用原始场景对象）
+      const existingMesh = rawScene.getObjectByName('point2CTGeneratedMesh');
       if (existingMesh) {
-        this.scene.remove(existingMesh);
+        rawScene.remove(existingMesh);
         console.log('已移除旧的生成网格');
       }
       
-      // 添加到场景
-      this.scene.add(mesh);
+      // 添加到场景（使用原始场景对象）
+      rawScene.add(mesh);
       
       // 调整相机以确保能看到整个模型
       geometry.computeBoundingBox();
@@ -2091,82 +2100,158 @@ class PlyRenderer {
    * @param {THREE.Object3D} object - 要适应的对象
    */
   _fitCameraToObject(object) {
-    // 使用非代理的原始对象进行操作
-    const camera = this.camera;
-    const controls = this.controls;
-    const renderer = this.renderer;
-    const scene = this.scene;
+    // 强制获取原始对象，避免Vue响应式代理问题
+    const rawObject = toRaw(object);
+    const camera = toRaw(this.camera);
+    const controls = toRaw(this.controls);
+    const renderer = toRaw(this.renderer);
+    const scene = toRaw(this.scene);
     
-    if (!camera || !controls || !renderer || !scene) return;
+    if (!camera || !controls || !renderer || !scene) {
+      console.error('缺少必要的Three.js组件');
+      return;
+    }
     
-    // 创建临时非响应式对象来避免Vue代理问题
+    console.log('使用原始对象调整相机');
+    
+    // 创建临时非响应式对象，完全脱离Vue响应式系统
     const box = new THREE.Box3();
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     const lookAtTarget = new THREE.Vector3();
     
     try {
-      // 计算包围盒
-      box.setFromObject(object);
+      // 计算包围盒（使用原始对象）
+      box.setFromObject(rawObject || scene);
       box.getSize(size);
       box.getCenter(center);
       
       // 计算相机需要的距离
       const maxDim = Math.max(size.x, size.y, size.z);
-      const fov = camera.fov * (Math.PI / 180);
+      
+      // 安全获取相机FOV（避免通过代理访问属性）
+      let safeFov = 75; // 默认值
+      try {
+        safeFov = camera.fov;
+      } catch (fovError) {
+        console.warn('无法获取相机FOV，使用默认值:', fovError);
+      }
+      
+      const fov = safeFov * (Math.PI / 180);
       let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
       
       // 增加一些边距
       cameraZ *= 1.5;
       
-      // 设置相机位置
-      camera.position.set(center.x, center.y, center.z + cameraZ);
+      // 安全设置相机位置（避免通过代理访问position属性）
+      try {
+        const cameraPos = camera.position;
+        cameraPos.x = center.x;
+        cameraPos.y = center.y;
+        cameraPos.z = center.z + cameraZ;
+      } catch (posError) {
+        console.error('无法设置相机位置:', posError);
+        return;
+      }
       
-      // 设置lookAt目标
-      lookAtTarget.copy(center);
-      camera.lookAt(lookAtTarget);
+      // 安全设置lookAt目标（避免通过代理调用方法）
+      try {
+        lookAtTarget.x = center.x;
+        lookAtTarget.y = center.y;
+        lookAtTarget.z = center.z;
+        
+        // 直接调用lookAt方法，避免this绑定问题
+        const lookAtMethod = camera.lookAt;
+        if (typeof lookAtMethod === 'function') {
+          lookAtMethod.call(camera, lookAtTarget);
+        }
+      } catch (lookAtError) {
+        console.error('无法设置相机朝向:', lookAtError);
+      }
       
-      // 谨慎更新控制器目标
-      if (controls.target && controls.target.set) {
+      // 安全更新控制器目标（确保使用原始controls.target）
+      if (controls && controls.target && typeof controls.target.set === 'function') {
         try {
-          controls.target.set(center.x, center.y, center.z);
-        } catch (e) {
-          console.warn('无法更新控制器目标:', e);
+          const target = controls.target;
+          target.x = center.x;
+          target.y = center.y;
+          target.z = center.z;
+        } catch (targetError) {
+          console.warn('无法更新控制器目标:', targetError);
         }
       }
       
       // 更新控制器
-      if (controls.update) {
-        controls.update();
+      if (typeof controls.update === 'function') {
+        try {
+          controls.update();
+        } catch (updateError) {
+          console.warn('无法更新控制器:', updateError);
+        }
       }
       
-      // 避免直接调用renderer.render，使用setTimeout延迟渲染
-      // 这样可以避免Vue响应式代理与Three.js内部属性的冲突
-      setTimeout(() => {
-        try {
-          // 手动触发布局更新而不是直接调用renderer.render
-          if (renderer && scene && camera) {
-            // 使用requestAnimationFrame确保在下一帧渲染
-            requestAnimationFrame(() => {
-              try {
-                // 检查renderer是否有正确的上下文
-                if (renderer.domElement && renderer.getContext()) {
-                  // 使用Object.assign来避免直接访问代理的方法
-                  const tempRenderer = renderer;
-                  tempRenderer.render(scene, camera);
-                }
-              } catch (frameError) {
-                console.warn('渲染帧时出错:', frameError);
-                // 即使渲染失败，我们也已经正确设置了场景和相机
-              }
-            });
-          }
-        } catch (timeoutError) {
-          console.warn('延迟渲染时出错:', timeoutError);
+      // 更新相机投影矩阵（关键：避免在渲染过程中更新）
+      try {
+        if (typeof camera.updateProjectionMatrix === 'function') {
+          camera.updateProjectionMatrix();
         }
-      }, 0);
+      } catch (projError) {
+        console.warn('无法更新相机投影矩阵:', projError);
+      }
+      
+      // 强化的延迟渲染机制，完全避免Vue响应式代理冲突
+      setTimeout(() => {
+        // 确保在DOM更新周期后执行
+        requestAnimationFrame(() => {
+          try {
+            // 再次确认所有对象都是原始实例
+            const finalRenderer = toRaw(renderer);
+            const finalScene = toRaw(scene);
+            const finalCamera = toRaw(camera);
+            
+            // 检查渲染器状态
+            if (finalRenderer && finalRenderer.domElement && finalRenderer.getContext) {
+              // 使用闭包捕获渲染器，避免代理访问
+              const doRender = () => {
+                try {
+                  finalRenderer.render(finalScene, finalCamera);
+                  console.log('相机调整完成并成功渲染');
+                } catch (renderError) {
+                  console.error('渲染时出错，但相机位置已正确设置:', renderError);
+                }
+              };
+              
+              // 最后一次延迟，确保所有状态稳定
+              setTimeout(doRender, 0);
+            }
+          } catch (frameError) {
+            console.error('渲染帧时出现严重错误:', frameError);
+          }
+        });
+      }, 50); // 增加延迟，确保Vue的响应式更新完成
     } catch (e) {
       console.error('调整相机时出错:', e);
+      
+      // 增强的降级方案
+      try {
+        const camPos = camera.position;
+        camPos.x = 0;
+        camPos.y = 0;
+        camPos.z = 5;
+        
+        const lookAtMethod = camera.lookAt;
+        if (typeof lookAtMethod === 'function') {
+          lookAtMethod.call(camera, 0, 0, 0);
+        }
+        
+        if (typeof camera.updateProjectionMatrix === 'function') {
+          camera.updateProjectionMatrix();
+        }
+        
+        console.log('使用降级方案设置相机位置');
+      } catch (fallbackError) {
+        console.error('降级方案也失败:', fallbackError);
+      }
     }
   }
 }
