@@ -1383,9 +1383,9 @@ const togglePoint2CTMode = () => {
       console.log('点2CT模式：已设置当前模型', organName);
     }
     
-    // 设置batchId给point2CTManager
+    // 设置batchId给point2CTManager（使用中文方法名）
     if (batchId) {
-      point2CTManager.setBatchId(batchId);
+      point2CTManager.设置批次ID(batchId);
       console.log('点2CT模式：已设置batchId:', batchId);
     } else {
       console.warn('点2CT模式：batchId为空，请检查URL参数');
