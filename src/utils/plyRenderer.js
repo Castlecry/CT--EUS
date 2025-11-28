@@ -2045,12 +2045,52 @@ class PlyRenderer {
       geometry.computeVertexNormals();
       
       // 创建材质
+      // 优化材质设置，使用更适合在模型上显示的参数
       const material = new THREE.MeshBasicMaterial({
         color: new THREE.Color(color),
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.7
+        opacity: 0.8, // 稍微提高不透明度，使其更容易辨识
+        depthTest: true, // 确保深度测试正确
+        depthWrite: true
       });
+      
+      // 添加调试信息，记录PLY面的位置和范围
+      const faceCenter = new THREE.Vector3();
+      if (vertices.length > 0) {
+        // 计算面的中心点
+        vertices.forEach(vertex => {
+          faceCenter.add(vertex);
+        });
+        faceCenter.divideScalar(vertices.length);
+        
+        console.log('PLY面中心点坐标:', faceCenter);
+        console.log('PLY面顶点数量:', vertices.length);
+        console.log('PLY面顶点坐标:', vertices);
+        
+        // 创建辅助点来标记面的中心位置
+        const centerGeometry = new THREE.BufferGeometry();
+        const centerPosition = new Float32Array([faceCenter.x, faceCenter.y, faceCenter.z]);
+        centerGeometry.setAttribute('position', new THREE.BufferAttribute(centerPosition, 3));
+        
+        const centerMaterial = new THREE.PointsMaterial({
+          color: 0xFF0000, // 红色标记中心点
+          size: 3, // 较大的点大小，使其更明显
+          sizeAttenuation: true
+        });
+        
+        const centerPoint = new THREE.Points(centerGeometry, centerMaterial);
+        centerPoint.name = 'point2CTFaceCenter';
+        
+        // 移除可能存在的旧中心点标记
+        const oldCenterPoint = rawScene.getObjectByName('point2CTFaceCenter');
+        if (oldCenterPoint) {
+          rawScene.remove(oldCenterPoint);
+        }
+        
+        // 添加中心点到场景
+        rawScene.add(centerPoint);
+      }
       
       // 创建网格
       const mesh = new THREE.Mesh(geometry, material);
@@ -2072,20 +2112,51 @@ class PlyRenderer {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
       if (box) {
-        const center = new THREE.Vector3();
-        box.getCenter(center);
+        // 保留PLY面的原始坐标位置，不进行偏移
+        console.log('保持PLY面的原始坐标位置，不进行偏移');
         
-        // 将模型定位到世界中心附近，方便查看
-        mesh.position.x = -center.x;
-        mesh.position.y = -center.y;
-        mesh.position.z = -center.z;
-        
-        // 调整相机位置
-        this._fitCameraToObject(mesh);
+        // 调整相机位置，但不移动模型
+        // 使用focusScene=true参数，让相机聚焦于整个场景而不仅是新创建的面
+        this._fitCameraToObject(mesh, true);
       }
       
       // 计算面数（每个面由3个索引组成）
       const finalFaceCount = indices.length / 3;
+      // 计算并记录坐标范围，帮助诊断坐标系统问题
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      
+      vertices.forEach(vertex => {
+        minX = Math.min(minX, vertex.x);
+        maxX = Math.max(maxX, vertex.x);
+        minY = Math.min(minY, vertex.y);
+        maxY = Math.max(maxY, vertex.y);
+        minZ = Math.min(minZ, vertex.z);
+        maxZ = Math.max(maxZ, vertex.z);
+      });
+      
+      // 记录坐标范围信息
+      console.log('PLY面坐标范围:');
+      console.log(`X: ${minX.toFixed(2)} to ${maxX.toFixed(2)} (范围: ${(maxX-minX).toFixed(2)})`);
+      console.log(`Y: ${minY.toFixed(2)} to ${maxY.toFixed(2)} (范围: ${(maxY-minY).toFixed(2)})`);
+      console.log(`Z: ${minZ.toFixed(2)} to ${maxZ.toFixed(2)} (范围: ${(maxZ-minZ).toFixed(2)})`);
+      
+      // 计算面的尺寸
+      const faceSize = new THREE.Vector3(
+        maxX - minX,
+        maxY - minY,
+        maxZ - minZ
+      );
+      console.log('PLY面尺寸:', faceSize);
+      console.log('PLY面中心点:', faceCenter);
+      
+      // 检查是否存在坐标系统缩放或偏移问题
+      const isLargeCoordinates = faceSize.x > 100 || faceSize.y > 100 || faceSize.z > 100;
+      if (isLargeCoordinates) {
+        console.warn('警告: PLY坐标值较大，可能存在坐标系统缩放问题');
+      }
+      
       console.log('PLY模型渲染成功，顶点数:', vertices.length, '面数:', finalFaceCount);
       return true;
     } catch (error) {
@@ -2095,13 +2166,14 @@ class PlyRenderer {
   }
   
   /**
-   * 调整相机以适应对象
+   * 调整相机以适应对象或整个场景
    * @private
-   * @param {THREE.Object3D} object - 要适应的对象
+   * @param {THREE.Object3D|null} object - 要适应的对象，如果为null则适应整个场景
+   * @param {boolean} focusScene - 是否聚焦于整个场景（默认为true）
    */
-  _fitCameraToObject(object) {
+  _fitCameraToObject(object, focusScene = true) {
     // 强制获取原始对象，避免Vue响应式代理问题
-    const rawObject = toRaw(object);
+    const rawObject = object ? toRaw(object) : null;
     const camera = toRaw(this.camera);
     const controls = toRaw(this.controls);
     const renderer = toRaw(this.renderer);
@@ -2112,7 +2184,7 @@ class PlyRenderer {
       return;
     }
     
-    console.log('使用原始对象调整相机');
+    console.log(`使用原始对象调整相机，聚焦模式: ${focusScene ? '整个场景' : '单个对象'}`);
     
     // 创建临时非响应式对象，完全脱离Vue响应式系统
     const box = new THREE.Box3();
@@ -2121,8 +2193,31 @@ class PlyRenderer {
     const lookAtTarget = new THREE.Vector3();
     
     try {
-      // 计算包围盒（使用原始对象）
-      box.setFromObject(rawObject || scene);
+      // 计算包围盒 - 根据focusScene参数决定是使用整个场景还是单个对象
+      if (focusScene) {
+        // 聚焦于整个场景，计算所有可渲染对象的包围盒
+        console.log('计算整个场景的包围盒');
+        box.makeEmpty(); // 确保包围盒为空
+        
+        // 遍历场景中所有可见对象，计算包围盒
+        scene.traverseVisible((child) => {
+          if (child.isMesh || child.isPoints || child.isLine) {
+            const childBox = new THREE.Box3().setFromObject(child);
+            box.union(childBox);
+          }
+        });
+        
+        // 如果场景包围盒为空（没有几何体），则使用对象包围盒
+        if (box.isEmpty()) {
+          console.log('场景包围盒为空，使用对象包围盒');
+          box.setFromObject(rawObject || scene);
+        }
+      } else {
+        // 仅聚焦于指定对象
+        console.log('计算单个对象的包围盒');
+        box.setFromObject(rawObject || scene);
+      }
+      
       box.getSize(size);
       box.getCenter(center);
       
