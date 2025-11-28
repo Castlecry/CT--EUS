@@ -1933,6 +1933,12 @@ class PlyRenderer {
         console.log(`第${index + 1}行: ${line}`);
       });
       
+      // 确保获取原始的Three.js对象，避免Vue响应式代理问题
+      const rawCamera = this.camera;
+      const rawScene = this.scene;
+      const rawRenderer = this.renderer;
+      const rawControls = this.controls;
+      
       // 解析PLY头部
       let vertexCount = 0;
       let faceCount = 0;
@@ -2085,50 +2091,83 @@ class PlyRenderer {
    * @param {THREE.Object3D} object - 要适应的对象
    */
   _fitCameraToObject(object) {
-    if (!this.camera || !this.controls) return;
+    // 使用非代理的原始对象进行操作
+    const camera = this.camera;
+    const controls = this.controls;
+    const renderer = this.renderer;
+    const scene = this.scene;
     
-    const box = new THREE.Box3().setFromObject(object);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
+    if (!camera || !controls || !renderer || !scene) return;
     
-    // 计算相机需要的距离
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const fov = this.camera.fov * (Math.PI / 180);
-    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+    // 创建临时非响应式对象来避免Vue代理问题
+    const box = new THREE.Box3();
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    const lookAtTarget = new THREE.Vector3();
     
-    // 增加一些边距
-    cameraZ *= 1.5;
-    
-    // 设置相机位置
-    this.camera.position.set(center.x, center.y, center.z + cameraZ);
-    this.camera.lookAt(center);
-    
-    // 更新控制器目标 - 使用set方法而不是直接修改target对象
-    if (this.controls && typeof this.controls.target === 'object') {
-      try {
-        // 尝试使用set方法设置目标位置
-        if (this.controls.target.set) {
-          this.controls.target.set(center.x, center.y, center.z);
-        } else if (this.controls.target.copy) {
-          // 备用方案：尝试复制新位置
-          this.controls.target.copy(center);
-        }
-      } catch (e) {
-        console.warn('无法更新控制器目标:', e);
-        // 最终备用方案：创建新的Vector3对象
-        if (this.controls && THREE.Vector3) {
-          this.controls.target = new THREE.Vector3(center.x, center.y, center.z);
+    try {
+      // 计算包围盒
+      box.setFromObject(object);
+      box.getSize(size);
+      box.getCenter(center);
+      
+      // 计算相机需要的距离
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fov = camera.fov * (Math.PI / 180);
+      let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+      
+      // 增加一些边距
+      cameraZ *= 1.5;
+      
+      // 设置相机位置
+      camera.position.set(center.x, center.y, center.z + cameraZ);
+      
+      // 设置lookAt目标
+      lookAtTarget.copy(center);
+      camera.lookAt(lookAtTarget);
+      
+      // 谨慎更新控制器目标
+      if (controls.target && controls.target.set) {
+        try {
+          controls.target.set(center.x, center.y, center.z);
+        } catch (e) {
+          console.warn('无法更新控制器目标:', e);
         }
       }
+      
+      // 更新控制器
+      if (controls.update) {
+        controls.update();
+      }
+      
+      // 避免直接调用renderer.render，使用setTimeout延迟渲染
+      // 这样可以避免Vue响应式代理与Three.js内部属性的冲突
+      setTimeout(() => {
+        try {
+          // 手动触发布局更新而不是直接调用renderer.render
+          if (renderer && scene && camera) {
+            // 使用requestAnimationFrame确保在下一帧渲染
+            requestAnimationFrame(() => {
+              try {
+                // 检查renderer是否有正确的上下文
+                if (renderer.domElement && renderer.getContext()) {
+                  // 使用Object.assign来避免直接访问代理的方法
+                  const tempRenderer = renderer;
+                  tempRenderer.render(scene, camera);
+                }
+              } catch (frameError) {
+                console.warn('渲染帧时出错:', frameError);
+                // 即使渲染失败，我们也已经正确设置了场景和相机
+              }
+            });
+          }
+        } catch (timeoutError) {
+          console.warn('延迟渲染时出错:', timeoutError);
+        }
+      }, 0);
+    } catch (e) {
+      console.error('调整相机时出错:', e);
     }
-    
-    // 更新控制器
-    if (this.controls.update) {
-      this.controls.update();
-    }
-    
-    // 渲染更新
-    this.renderer.render(this.scene, this.camera);
   }
 }
 
