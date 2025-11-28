@@ -1927,6 +1927,12 @@ class PlyRenderer {
       const text = await response.text();
       const lines = text.split('\n');
       
+      // 打印PLY文件的每行数据
+      console.log('PLY文件内容:');
+      lines.forEach((line, index) => {
+        console.log(`第${index + 1}行: ${line}`);
+      });
+      
       // 解析PLY头部
       let vertexCount = 0;
       let faceCount = 0;
@@ -2063,7 +2069,9 @@ class PlyRenderer {
         this._fitCameraToObject(mesh);
       }
       
-      console.log('PLY模型渲染成功，顶点数:', vertices.length, '面数:', faces.length);
+      // 计算面数（每个面由3个索引组成）
+      const finalFaceCount = indices.length / 3;
+      console.log('PLY模型渲染成功，顶点数:', vertices.length, '面数:', finalFaceCount);
       return true;
     } catch (error) {
       console.error('渲染PLY失败:', error);
