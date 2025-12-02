@@ -1663,6 +1663,13 @@ const switchToDetailView = (organKey) => {
   selectedModelKey.value = organKey;
   selectedModelDetail.value = getModelDetail(organKey);
   updateViews();
+  
+  // 设置视角中心点为选中的模型
+  if (renderer.value && renderer.value.setViewTargetToModel) {
+    const chineseName = organList[organKey];
+    renderer.value.setViewTargetToModel(chineseName);
+  }
+  
   // 确保视图切换到详情页
   nextTick(() => {
     const detailIndex = views.value.indexOf('info-detail');
@@ -1950,8 +1957,8 @@ const displayPoint2CTRecord = (recordId) => {
     
     // 显示ZIP解压的PLY文件生成的面，确保不会覆盖原始模型
     if (record.files && record.files.ply && typeof plyRenderer.value.renderPLY === 'function') {
-      // 添加参数确保在显示PLY面时保持原始模型可见
-      plyRenderer.value.renderPLY(record.files.ply, '#00FF00', true); // 第三个参数表示保持原始模型可见
+      // 添加参数确保在显示PLY面时保持原始模型可见，并传入记录中的点坐标以对齐面中心
+      plyRenderer.value.renderPLY(record.files.ply, '#00FF00', record.point.coordinate); // 第三个参数表示保持原始模型可见
     }
     
     // 如果有渲染图像，显示它
@@ -2070,8 +2077,8 @@ const handleUploadPoint2CTParams = async () => {
           if (plyRenderer.value && plyRenderer.value._initPromise) {
             await plyRenderer.value._initPromise;
           }
-          // 使用plyRenderer渲染模型，使用绿色显示面
-          await plyRenderer.value.renderPLY(plyFile.url, '#00FF00');
+          // 使用plyRenderer渲染模型，使用绿色显示面，并传入用户选择的点以对齐面中心
+          await plyRenderer.value.renderPLY(plyFile.url, '#00FF00', selectedPoint.value);
           
           // 保存生成的PLY URL，以便后续使用或清理
           generatedPlyUrl.value = plyFile.url;

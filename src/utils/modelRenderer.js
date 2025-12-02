@@ -738,6 +738,42 @@ class ModelRenderer {
     console.log('重置相机视角');
   }
   
+  // 设置视角中心点为指定模型
+  setViewTargetToModel(modelName) {
+    if (!this.models.has(modelName)) {
+      console.error(`模型${modelName}不存在，无法设置视角中心点`);
+      return false;
+    }
+    
+    const model = this.models.get(modelName);
+    
+    // 计算模型的边界框
+    const boundingBox = new THREE.Box3().setFromObject(model);
+    const center = boundingBox.getCenter(new THREE.Vector3());
+    
+    // 设置OrbitControls的目标点为模型中心
+    this.controls.target.copy(center);
+    this.controls.update();
+    
+    console.log(`已设置视角中心点为模型${modelName}，中心点坐标:`, center);
+    return true;
+  }
+  
+  // 设置视角中心点为指定坐标
+  setViewTarget(position) {
+    if (!position || typeof position.x !== 'number' || typeof position.y !== 'number' || typeof position.z !== 'number') {
+      console.error('无效的坐标，无法设置视角中心点');
+      return false;
+    }
+    
+    // 设置OrbitControls的目标点为指定坐标
+    this.controls.target.set(position.x, position.y, position.z);
+    this.controls.update();
+    
+    console.log('已设置视角中心点为指定坐标:', position);
+    return true;
+  }
+  
   // 调整相机以适应所有模型
   fitToScreen() {
     try {

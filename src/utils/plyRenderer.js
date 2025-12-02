@@ -1914,9 +1914,10 @@ class PlyRenderer {
    * 渲染PLY文件，将点连接成面并涂色
    * @param {string} plyUrl - PLY文件的URL
    * @param {string} color - 面的颜色，默认为绿色
+   * @param {THREE.Vector3} selectedPoint - 用户选择的点，用于对齐PLY面的中心点
    * @returns {Promise<boolean>} 是否成功渲染
    */
-  async renderPLY(plyUrl, color = '#00FF00') {
+  async renderPLY(plyUrl, color = '#00FF00', selectedPoint = null) {
     if (!this._initialized || !plyUrl) {
       console.error('渲染PLY失败：初始化未完成或URL无效');
       return false;
@@ -1993,6 +1994,45 @@ class PlyRenderer {
         positions[index * 3 + 2] = vertex.z;
       });
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      // 计算PLY面的原始中心点
+      const originalCenter = new THREE.Vector3();
+      vertices.forEach(vertex => {
+        originalCenter.add(vertex);
+      });
+      originalCenter.divideScalar(vertices.length);
+      
+      // 如果提供了用户选择的点，将PLY面的中心点对齐到用户选择的点
+      if (selectedPoint) {
+        console.log('用户选择的点:', selectedPoint);
+        console.log('PLY面原始中心点:', originalCenter);
+        
+        // 计算偏移向量
+        const offset = new THREE.Vector3().subVectors(selectedPoint, originalCenter);
+        console.log('计算偏移向量:', offset);
+        
+        // 应用偏移到所有顶点
+        for (let i = 0; i < vertices.length; i++) {
+          vertices[i].add(offset);
+        }
+        
+        // 更新位置属性
+        for (let i = 0; i < vertices.length; i++) {
+          positions[i * 3] = vertices[i].x;
+          positions[i * 3 + 1] = vertices[i].y;
+          positions[i * 3 + 2] = vertices[i].z;
+        }
+        
+        // 计算对齐后的中心点
+        const alignedCenter = new THREE.Vector3();
+        vertices.forEach(vertex => {
+          alignedCenter.add(vertex);
+        });
+        alignedCenter.divideScalar(vertices.length);
+        
+        console.log('对齐后的PLY面中心点:', alignedCenter);
+        console.log('验证对齐是否成功:', alignedCenter.distanceTo(selectedPoint) < 0.01 ? '成功' : '失败');
+      }
       
       // 创建三角形面索引
       const indices = [];
