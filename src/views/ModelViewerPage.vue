@@ -1482,6 +1482,18 @@ const clearAllModels = () => {
       trajectoryHistory.value = [];
       currentDisplayedTrajectoryId.value = null;
       showTrajectoryHistory.value = false;
+      
+      // 清除校准轨迹相关状态
+      calibrationTrajectory.value = [];
+      currentDisplayedCalibrationId.value = null;
+      expandedPointsViews.value.clear();
+      
+      // 清除点2CT相关状态
+      point2CTRecords.value = [];
+      currentDisplayedPoint2CTId.value = null;
+      
+      // 清除生成的PLY资源
+      cleanupGeneratedPly();
     }
   }
   
@@ -1957,8 +1969,8 @@ const displayPoint2CTRecord = (recordId) => {
     
     // 显示ZIP解压的PLY文件生成的面，确保不会覆盖原始模型
     if (record.files && record.files.ply && typeof plyRenderer.value.renderPLY === 'function') {
-      // 添加参数确保在显示PLY面时保持原始模型可见，并传入记录中的点坐标以对齐面中心
-      plyRenderer.value.renderPLY(record.files.ply, '#00FF00', record.point.coordinate); // 第三个参数表示保持原始模型可见
+      // 直接按照PLY坐标渲染，不进行坐标变换
+      plyRenderer.value.renderPLY(record.files.ply, '#00FF00');
     }
     
     // 如果有渲染图像，显示它
@@ -2077,8 +2089,8 @@ const handleUploadPoint2CTParams = async () => {
           if (plyRenderer.value && plyRenderer.value._initPromise) {
             await plyRenderer.value._initPromise;
           }
-          // 使用plyRenderer渲染模型，使用绿色显示面，并传入用户选择的点以对齐面中心
-          await plyRenderer.value.renderPLY(plyFile.url, '#00FF00', selectedPoint.value);
+          // 使用plyRenderer渲染模型，使用绿色显示面，直接按照PLY坐标渲染
+          await plyRenderer.value.renderPLY(plyFile.url, '#00FF00');
           
           // 保存生成的PLY URL，以便后续使用或清理
           generatedPlyUrl.value = plyFile.url;
@@ -2579,6 +2591,8 @@ const deleteCalibrationTrajectory = (trajectoryId) => {
     // 如果删除的是当前显示的轨迹，先隐藏
     if (trajectoryId === currentDisplayedCalibrationId.value) {
       hideCalibrationTrajectory();
+      // 重置当前显示的校准轨迹ID
+      currentDisplayedCalibrationId.value = null;
     }
     
     // 从列表中删除（确保界面立即更新）

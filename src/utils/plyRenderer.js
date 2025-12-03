@@ -1926,6 +1926,16 @@ class PlyRenderer {
     try {
       console.log('开始渲染PLY文件:', plyUrl);
       
+      // 保存当前控制器状态，以便后续恢复
+      const rawControls = toRaw(this.controls);
+      const wasControlsEnabled = rawControls ? rawControls.enabled : false;
+      
+      // 暂时启用控制器，避免Vue响应式代理问题
+      if (rawControls) {
+        rawControls.enabled = true;
+        console.log('PLY渲染：暂时启用控制器，避免响应式代理问题');
+      }
+      
       // 加载PLY文件
       const response = await fetch(plyUrl);
       if (!response.ok) {
@@ -1945,7 +1955,6 @@ class PlyRenderer {
       const rawCamera = toRaw(this.camera);
       const rawScene = toRaw(this.scene);
       const rawRenderer = toRaw(this.renderer);
-      const rawControls = toRaw(this.controls);
       
       console.log('使用原始对象进行渲染操作');
       
@@ -2002,37 +2011,8 @@ class PlyRenderer {
       });
       originalCenter.divideScalar(vertices.length);
       
-      // 如果提供了用户选择的点，将PLY面的中心点对齐到用户选择的点
-      if (selectedPoint) {
-        console.log('用户选择的点:', selectedPoint);
-        console.log('PLY面原始中心点:', originalCenter);
-        
-        // 计算偏移向量
-        const offset = new THREE.Vector3().subVectors(selectedPoint, originalCenter);
-        console.log('计算偏移向量:', offset);
-        
-        // 应用偏移到所有顶点
-        for (let i = 0; i < vertices.length; i++) {
-          vertices[i].add(offset);
-        }
-        
-        // 更新位置属性
-        for (let i = 0; i < vertices.length; i++) {
-          positions[i * 3] = vertices[i].x;
-          positions[i * 3 + 1] = vertices[i].y;
-          positions[i * 3 + 2] = vertices[i].z;
-        }
-        
-        // 计算对齐后的中心点
-        const alignedCenter = new THREE.Vector3();
-        vertices.forEach(vertex => {
-          alignedCenter.add(vertex);
-        });
-        alignedCenter.divideScalar(vertices.length);
-        
-        console.log('对齐后的PLY面中心点:', alignedCenter);
-        console.log('验证对齐是否成功:', alignedCenter.distanceTo(selectedPoint) < 0.01 ? '成功' : '失败');
-      }
+      console.log('PLY面原始中心点:', originalCenter);
+      console.log('直接按照PLY坐标渲染，不进行坐标变换');
       
       // 创建三角形面索引
       const indices = [];
@@ -2198,9 +2178,23 @@ class PlyRenderer {
       }
       
       console.log('PLY模型渲染成功，顶点数:', vertices.length, '面数:', finalFaceCount);
+      
+      // 渲染完成后，恢复控制器状态
+      if (rawControls) {
+        rawControls.enabled = wasControlsEnabled;
+        console.log('PLY渲染完成：已恢复控制器状态为', wasControlsEnabled ? '启用' : '禁用');
+      }
+      
       return true;
     } catch (error) {
       console.error('渲染PLY失败:', error);
+      
+      // 出错时也要恢复控制器状态
+      if (rawControls) {
+        rawControls.enabled = wasControlsEnabled;
+        console.log('PLY渲染出错：已恢复控制器状态为', wasControlsEnabled ? '启用' : '禁用');
+      }
+      
       return false;
     }
   }
