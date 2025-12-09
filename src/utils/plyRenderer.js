@@ -1957,12 +1957,16 @@ class PlyRenderer {
       return false;
     }
 
+    // 在try-catch块外声明变量，确保在catch块中可访问
+    let rawControls = null;
+    let wasControlsEnabled = false;
+    
     try {
       console.log('开始渲染PLY文件:', plyUrl);
       
       // 保存当前控制器状态，以便后续恢复
-      const rawControls = toRaw(this.controls);
-      const wasControlsEnabled = rawControls ? rawControls.enabled : false;
+      rawControls = toRaw(this.controls);
+      wasControlsEnabled = rawControls ? rawControls.enabled : false;
       
       // 暂时启用控制器，避免Vue响应式代理问题
       if (rawControls) {
@@ -1978,7 +1982,7 @@ class PlyRenderer {
       console.log('使用原始对象进行渲染操作');
       
       // 使用Three.js的PLYLoader加载PLY文件
-      const loader = new THREE.PLYLoader();
+      const loader = new PLYLoader();
       
       // 使用Promise包装load方法，以便使用async/await
       const geometry = await new Promise((resolve, reject) => {

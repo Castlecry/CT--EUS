@@ -1560,6 +1560,9 @@ const loadModelPoints = async () => {
     if (success) {
       hasPlyData.value = true;
       console.log(`成功加载${organList[organKey]}的点位数据`);
+      
+      // 自动初始化点2CT选点功能（当获取点位后自动准备选点功能）
+      autoInitializePoint2CT();
     } else {
       alert(`加载${organList[organKey]}的点位数据失败，请重试`);
     }
@@ -1787,6 +1790,38 @@ const togglePoint2CTMode = () => {
     
     console.log('点2CT模式已退出，点位数据保持可用');
   }
+};
+
+// 自动初始化点2CT选点功能（当获取点位后自动准备选点功能）
+const autoInitializePoint2CT = () => {
+  if (!selectedModelKey.value || !rendererReady.value || !plyRenderer.value) {
+    return;
+  }
+  
+  // 确保点位数据已加载
+  if (!hasPlyData.value) {
+    return;
+  }
+  
+  console.log('自动初始化点2CT选点功能');
+  const organName = selectedModelKey.value;
+  
+  // 设置当前模型，确保吸附功能能找到对应的点位数据
+  if (plyRenderer.value.setCurrentModel) {
+    plyRenderer.value.setCurrentModel(organName);
+    console.log('自动初始化：已设置当前模型', organName);
+  }
+  
+  // 设置batchId给point2CTManager
+  if (batchId) {
+    point2CTManager.设置批次ID(batchId);
+    console.log('自动初始化：已设置batchId:', batchId);
+  }
+  
+  // 重置选点状态，确保状态干净
+  resetPoint2CT();
+  
+  console.log('点2CT选点功能已自动初始化，可以正常使用');
 };
 
 // 处理点选择事件

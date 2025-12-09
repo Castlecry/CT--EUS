@@ -189,17 +189,31 @@ class PlyHistoryManager {
     
     const trajectory = modelTrajectories[index];
     
-    // 移除轨迹对象
+    // 移除轨迹对象 - 确保完全清理
     if (trajectory.lineObject) {
-      scene.remove(trajectory.lineObject);
-      trajectory.lineObject.geometry.dispose();
-      trajectory.lineObject.material.dispose();
+      // 确保从场景中完全移除
+      if (trajectory.lineObject.parent) {
+        trajectory.lineObject.parent.remove(trajectory.lineObject);
+      } else {
+        scene.remove(trajectory.lineObject);
+      }
+      
+      // 彻底清理几何体和材质
+      if (trajectory.lineObject.geometry) {
+        trajectory.lineObject.geometry.dispose();
+      }
+      if (trajectory.lineObject.material) {
+        trajectory.lineObject.material.dispose();
+      }
+      
+      // 清除引用，防止内存泄漏
+      trajectory.lineObject = null;
     }
     
     // 从数组中删除
     modelTrajectories.splice(index, 1);
     
-    // 如果删除的是当前显示的轨迹，更新显示状态
+    // 如果删除的是当前显示的轨迹，确保完全清除显示状态
     if (trajectoryId === this.currentDisplayedTrajectoryId) {
       this.currentDisplayedTrajectoryId = null;
     }
