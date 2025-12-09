@@ -1716,7 +1716,12 @@ const togglePoint2CTMode = () => {
     return;
   }
   
-  // 不再自动退出绘制模式，允许两种模式共存
+  // 确保在进入选点模式前退出绘制模式，避免冲突
+  if (isDrawingMode.value && plyRenderer.value && plyRenderer.value.stopDrawing) {
+    plyRenderer.value.stopDrawing();
+    isDrawingMode.value = false;
+    console.log('点2CT模式：已自动退出绘制模式');
+  }
   
   isPoint2CTMode.value = !isPoint2CTMode.value;
   
@@ -1821,17 +1826,8 @@ const autoInitializePoint2CT = () => {
   // 重置选点状态，确保状态干净
   resetPoint2CT();
   
-  // 启用吸附功能，将阈值从5增加到15，使用正确的点位处理函数
-  try {
-    // 先禁用再重新启用，确保吸附功能正确初始化
-    if (plyRenderer.value.disableSnapToClosestPoint) {
-      plyRenderer.value.disableSnapToClosestPoint();
-    }
-    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
-    console.log('自动初始化：已启用吸附功能');
-  } catch (error) {
-    console.error('自动初始化：启用吸附功能失败:', error);
-  }
+  // 注意：不再自动启用吸附功能，用户需要手动点击"进入选点"按钮
+  console.log('自动初始化：点2CT选点功能已准备就绪，等待用户手动进入选点模式')
   
   console.log('点2CT选点功能已自动初始化，可以正常使用');
 };
@@ -2057,9 +2053,20 @@ const hidePoint2CTRecord = () => {
 // 删除点2CT记录
 const deletePoint2CTRecord = (recordId) => {
   try {
-    // 如果删除的是当前显示的记录，先隐藏
-    if (recordId === currentDisplayedPoint2CTId.value) {
-      hidePoint2CTRecord();
+    // 无论删除的是哪个记录，都清除模型上的点和面
+    if (plyRenderer.value) {
+      // 清除点高亮
+      if (typeof plyRenderer.value.highlightPoint === 'function') {
+        plyRenderer.value.highlightPoint(null);
+      }
+      
+      // 清除PLY模型显示
+      if (typeof plyRenderer.value.clearPLY === 'function') {
+        plyRenderer.value.clearPLY();
+      }
+      
+      currentDisplayedPoint2CTId.value = null;
+      console.log('清除模型上的点和面');
     }
     
     // 从列表中删除

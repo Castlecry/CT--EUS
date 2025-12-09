@@ -1802,21 +1802,38 @@ class PlyRenderer {
       }
       
       // 如果没有提供正方形点，直接返回
-      if (!squarePoints || squarePoints.length < 4) {
+      if (!squarePoints) {
+        return;
+      }
+      
+      // 处理两种格式的squarePoints：对象格式 {p1,p2,p3,p4} 和数组格式 [p1,p2,p3,p4]
+      let points;
+      if (Array.isArray(squarePoints)) {
+        points = squarePoints;
+      } else if (squarePoints.p1 && squarePoints.p2 && squarePoints.p3 && squarePoints.p4) {
+        points = [squarePoints.p1, squarePoints.p2, squarePoints.p3, squarePoints.p4];
+      } else {
+        console.error('无效的squarePoints格式');
+        return;
+      }
+      
+      // 确保有4个点
+      if (points.length < 4) {
+        console.error('squarePoints需要至少4个点');
         return;
       }
       
       // 创建正方形的几何体
       const geometry = new THREE.BufferGeometry();
       const positions = new Float32Array([
-        squarePoints[0].x, squarePoints[0].y, squarePoints[0].z,
-        squarePoints[1].x, squarePoints[1].y, squarePoints[1].z,
-        squarePoints[2].x, squarePoints[2].y, squarePoints[2].z,
-        squarePoints[3].x, squarePoints[3].y, squarePoints[3].z
+        points[0].x, points[0].y, points[0].z,
+        points[1].x, points[1].y, points[1].z,
+        points[2].x, points[2].y, points[2].z,
+        points[3].x, points[3].y, points[3].z
       ]);
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       
-      // 创建索引
+      // 创建索引 - 绘制两个三角形组成正方形
       const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
       geometry.setIndex(new THREE.BufferAttribute(indices, 1));
       
