@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { toRaw } from 'vue';
 import PlyHistoryManager from './plyHistory';
 
@@ -191,56 +192,53 @@ class PlyRenderer {
    */
   async _loadPlyFile(url) {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`加载PLY文件失败：${response.statusText}`);
-      }
-
-      const text = await response.text();
-      const lines = text.split('\n');
+      // 使用Three.js的PLYLoader加载PLY文件
+      const loader = new PLYLoader();
       
-      // 解析PLY头部，找到数据起始位置
-      let dataStartIndex = -1;
-      let vertexCount = 0;
-      let hasNormals = false;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.startsWith('element vertex')) {
-          vertexCount = parseInt(line.split(' ')[2]);
-        } else if (line.startsWith('property float nx')) {
-          hasNormals = true;
-        } else if (line === 'end_header') {
-          dataStartIndex = i + 1;
-          break;
-        }
+      // 使用Promise包装load方法，以便使用async/await
+      const geometry = await new Promise((resolve, reject) => {
+        loader.load(url, 
+          (loadedGeometry) => {
+            resolve(loadedGeometry);
+          },
+          (progress) => {
+            console.log('PLY加载进度:', (progress.loaded / progress.total * 100) + '%');
+          },
+          (error) => {
+            console.error('PLY加载错误:', error);
+            reject(error);
+          }
+        );
+      });
+      
+      // 检查几何体是否有效
+      if (!geometry || !geometry.attributes.position) {
+        throw new Error('加载的PLY文件无效或不包含顶点数据');
       }
-
-      if (dataStartIndex === -1 || vertexCount === 0) {
-        throw new Error('无效的PLY文件格式：未找到头部信息或顶点计数');
-      }
-
-      // 解析顶点数据
+      
+      // 提取顶点数据
+      const positions = geometry.attributes.position.array;
       const points = [];
       const normals = [];
       
-      for (let i = dataStartIndex; i < dataStartIndex + vertexCount && i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
+      // 检查是否有法向量数据
+      const hasNormals = geometry.attributes.normal !== undefined;
+      
+      for (let i = 0; i < positions.length; i += 3) {
+        // 添加点位
+        points.push(new THREE.Vector3(positions[i], positions[i+1], positions[i+2]));
         
-        const values = line.split(/\s+/).map(parseFloat);
-        
-        // 每行的前三个是x,y,z坐标
-        if (values.length >= 3) {
-          points.push(new THREE.Vector3(values[0], values[1], values[2]));
-          
-          // 后三个是法向量
-          if (hasNormals && values.length >= 6) {
-            normals.push(new THREE.Vector3(values[3], values[4], values[5]).normalize());
-          }
+        // 如果有法向量数据，添加法向量
+        if (hasNormals) {
+          const normalArray = geometry.attributes.normal.array;
+          normals.push(new THREE.Vector3(
+            normalArray[i], 
+            normalArray[i+1], 
+            normalArray[i+2]
+          ).normalize());
         }
       }
-
+      
       console.log(`PLY文件解析完成：${points.length}个点位，${hasNormals ? normals.length : 0}个法向量`);
       return { points, normals };
     } catch (error) {
@@ -1140,6 +1138,35 @@ class PlyRenderer {
    * 完成轨迹绘制
    * @private
    */
+  /**
+   * 优化轨迹点，去除过于密集的点
+   * @private
+   * @param {Array<THREE.Vector3>} points - 原始轨迹点数组
+   * @param {number} distanceThreshold - 距离阈值，小于此值的点会被合并
+   * @returns {Array<THREE.Vector3>} 优化后的轨迹点数组
+   */
+  _optimizeTrajectoryPoints(points, distanceThreshold = 0.1) {
+    if (!points || points.length < 3) return points;
+    
+    const optimizedPoints = [points[0]];
+    
+    for (let i = 1; i < points.length - 1; i++) {
+      const prevPoint = optimizedPoints[optimizedPoints.length - 1];
+      const currentPoint = points[i];
+      const distance = prevPoint.distanceTo(currentPoint);
+      
+      // 如果当前点与上一个点的距离大于阈值，或者是转折点，就保留
+      if (distance > distanceThreshold) {
+        optimizedPoints.push(currentPoint);
+      }
+    }
+    
+    // 始终保留最后一个点
+    optimizedPoints.push(points[points.length - 1]);
+    
+    return optimizedPoints;
+  }
+
   _finalizeTrajectory() {
     if (this.snappedTrajectoryPoints.length < 2) {
       this._clearTrajectory();
@@ -1150,7 +1177,10 @@ class PlyRenderer {
     // console.log(`完成轨迹绘制，点数: ${this.snappedTrajectoryPoints.length}`);
     
     try {
-      // 简化实现：直接使用用户触碰的所有点连接成线
+      // 优化轨迹点，去除过于密集的点
+      const optimizedPoints = this._optimizeTrajectoryPoints(this.snappedTrajectoryPoints, 0.2);
+      
+      // 简化实现：使用优化后的点连接成线
       const material = new THREE.LineBasicMaterial({
         color: 0xFF0000,
         linewidth: 3,  // 增加线宽
@@ -1158,27 +1188,27 @@ class PlyRenderer {
         opacity: 1.0
       });
       
-      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+      const geometry = new THREE.BufferGeometry().setFromPoints(optimizedPoints);
       this.lineObject = new THREE.Line(geometry, material);
       
       // 设置渲染顺序，确保轨迹线显示在最前面
       this.lineObject.renderOrder = 1000;
       this.lineObject.name = `${this.currentModel}_trajectory`;
       
-      // 记录轨迹点信息
-      this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
+      // 记录优化后的轨迹点信息
+      this.lineObject.trajectoryPoints = [...optimizedPoints];
       
-      // 收集距离轨迹线段很近的点
-      const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
+      // 收集距离轨迹线段很近的点（使用优化后的轨迹点）
+      const nearbyPoints = this._collectPointsNearSegments(optimizedPoints, 0.5);
       
-      // 更新selectedPoints，包含轨迹点和靠近线段的点
-      this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
+      // 更新selectedPoints，包含优化后的轨迹点和靠近线段的点
+      this.selectedPoints = [...optimizedPoints, ...nearbyPoints];
       
       this.scene.add(this.lineObject);
       
-      // 将当前轨迹添加到历史记录
+      // 将当前轨迹添加到历史记录（使用优化后的轨迹点）
       this.trajectoryHistory.setCurrentModel(this.currentModel);
-      this.trajectoryHistory.addTrajectory([...this.snappedTrajectoryPoints], this.scene);
+      this.trajectoryHistory.addTrajectory([...optimizedPoints], this.scene);
       
       // 可选：添加调试信息
       console.log(`轨迹创建成功，收集了${nearbyPoints.length}个靠近线段的点`);
@@ -1192,24 +1222,28 @@ class PlyRenderer {
         color: 0xFF0000,
         linewidth: 3
       });
-      const geometry = new THREE.BufferGeometry().setFromPoints(this.snappedTrajectoryPoints);
+      
+      // 优化轨迹点，去除过于密集的点
+      const optimizedPoints = this._optimizeTrajectoryPoints(this.snappedTrajectoryPoints, 0.2);
+      
+      const geometry = new THREE.BufferGeometry().setFromPoints(optimizedPoints);
       this.lineObject = new THREE.Line(geometry, material);
       this.lineObject.name = `${this.currentModel}_trajectory`;
       
-      // 记录轨迹点信息
-      this.lineObject.trajectoryPoints = [...this.snappedTrajectoryPoints];
+      // 记录优化后的轨迹点信息
+      this.lineObject.trajectoryPoints = [...optimizedPoints];
       
-      // 收集距离轨迹线段很近的点
-      const nearbyPoints = this._collectPointsNearSegments(this.snappedTrajectoryPoints, 0.5);
+      // 收集距离轨迹线段很近的点（使用优化后的轨迹点）
+      const nearbyPoints = this._collectPointsNearSegments(optimizedPoints, 0.5);
       
-      // 更新selectedPoints，包含轨迹点和靠近线段的点
-      this.selectedPoints = [...this.snappedTrajectoryPoints, ...nearbyPoints];
+      // 更新selectedPoints，包含优化后的轨迹点和靠近线段的点
+      this.selectedPoints = [...optimizedPoints, ...nearbyPoints];
       
       this.scene.add(this.lineObject);
       
-      // 将当前轨迹添加到历史记录
+      // 将当前轨迹添加到历史记录（使用优化后的轨迹点）
       this.trajectoryHistory.setCurrentModel(this.currentModel);
-      this.trajectoryHistory.addTrajectory([...this.snappedTrajectoryPoints], this.scene);
+      this.trajectoryHistory.addTrajectory([...optimizedPoints], this.scene);
       
       // 可选：添加调试信息
       console.log(`使用后备方案，收集了${nearbyPoints.length}个靠近线段的点`);
@@ -1936,21 +1970,6 @@ class PlyRenderer {
         console.log('PLY渲染：暂时启用控制器，避免响应式代理问题');
       }
       
-      // 加载PLY文件
-      const response = await fetch(plyUrl);
-      if (!response.ok) {
-        throw new Error(`加载PLY文件失败：${response.statusText}`);
-      }
-
-      const text = await response.text();
-      const lines = text.split('\n');
-      
-      // 打印PLY文件的每行数据
-      console.log('PLY文件内容:');
-      lines.forEach((line, index) => {
-        console.log(`第${index + 1}行: ${line}`);
-      });
-      
       // 确保获取原始的Three.js对象，避免Vue响应式代理问题
       const rawCamera = toRaw(this.camera);
       const rawScene = toRaw(this.scene);
@@ -1958,53 +1977,37 @@ class PlyRenderer {
       
       console.log('使用原始对象进行渲染操作');
       
-      // 解析PLY头部
-      let vertexCount = 0;
-      let faceCount = 0;
-      let dataStartIndex = -1;
-      let currentLine = 0;
+      // 使用Three.js的PLYLoader加载PLY文件
+      const loader = new THREE.PLYLoader();
       
-      while (currentLine < lines.length) {
-        const line = lines[currentLine].trim();
-        
-        if (line.startsWith('element vertex')) {
-          vertexCount = parseInt(line.split(' ')[2]);
-        } else if (line.startsWith('element face')) {
-          faceCount = parseInt(line.split(' ')[2]);
-        } else if (line === 'end_header') {
-          dataStartIndex = currentLine + 1;
-          break;
-        }
-        
-        currentLine++;
-      }
-      
-      if (dataStartIndex === -1) {
-        throw new Error('PLY文件格式错误：未找到end_header');
-      }
-      
-      // 提取顶点数据
-      const vertices = [];
-      for (let i = 0; i < vertexCount && dataStartIndex + i < lines.length; i++) {
-        const parts = lines[dataStartIndex + i].trim().split(/\s+/).map(parseFloat);
-        if (parts.length >= 3) {
-          vertices.push(new THREE.Vector3(parts[0], parts[1], parts[2]));
-        }
-      }
-      
-      // 创建几何体
-      const geometry = new THREE.BufferGeometry();
-      
-      // 设置顶点位置
-      const positions = new Float32Array(vertices.length * 3);
-      vertices.forEach((vertex, index) => {
-        positions[index * 3] = vertex.x;
-        positions[index * 3 + 1] = vertex.y;
-        positions[index * 3 + 2] = vertex.z;
+      // 使用Promise包装load方法，以便使用async/await
+      const geometry = await new Promise((resolve, reject) => {
+        loader.load(plyUrl, 
+          (loadedGeometry) => {
+            resolve(loadedGeometry);
+          },
+          (progress) => {
+            console.log('PLY加载进度:', (progress.loaded / progress.total * 100) + '%');
+          },
+          (error) => {
+            console.error('PLY加载错误:', error);
+            reject(error);
+          }
+        );
       });
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      // 检查几何体是否有效
+      if (!geometry || !geometry.attributes.position) {
+        throw new Error('加载的PLY文件无效或不包含顶点数据');
+      }
       
       // 计算PLY面的原始中心点
+      const positions = geometry.attributes.position.array;
+      const vertices = [];
+      for (let i = 0; i < positions.length; i += 3) {
+        vertices.push(new THREE.Vector3(positions[i], positions[i+1], positions[i+2]));
+      }
+      
       const originalCenter = new THREE.Vector3();
       vertices.forEach(vertex => {
         originalCenter.add(vertex);
@@ -2012,66 +2015,20 @@ class PlyRenderer {
       originalCenter.divideScalar(vertices.length);
       
       console.log('PLY面原始中心点:', originalCenter);
-      console.log('直接按照PLY坐标渲染，不进行坐标变换');
+      console.log('PLY顶点数量:', vertices.length);
       
-      // 创建三角形面索引
-      const indices = [];
-      
-      // 后端返回的PLY文件只有四个顶点坐标，没有面数据
-      // 对于四个顶点的情况，我们需要构建一个四边形面
-      if (vertices.length === 4) {
-        console.log('检测到4个顶点，构建四边形面');
-        // 正确构建四边形面的索引，使用两个三角形
-        // 注意：确保顶点连接顺序正确以避免面法向量错误
-        indices.push(0, 1, 2, 0, 2, 3);
-      } else {
-        // 如果有面数据，尝试解析
-        const faceDataStart = dataStartIndex + vertexCount;
-        if (faceCount > 0) {
-          console.log('从PLY文件解析面数据，面数:', faceCount);
-          // 解析文件中的面数据
-          for (let i = 0; i < faceCount && faceDataStart + i < lines.length; i++) {
-            const parts = lines[faceDataStart + i].trim().split(/\s+/).map(parseInt);
-            if (parts.length > 0) {
-              // PLY面格式：顶点数 + 顶点索引列表
-              const faceVertexCount = parts[0];
-              const faceVertices = parts.slice(1, 1 + faceVertexCount);
-              
-              // 对每个面进行三角剖分
-              if (faceVertices.length >= 3) {
-                for (let j = 1; j < faceVertices.length - 1; j++) {
-                  indices.push(faceVertices[0], faceVertices[j], faceVertices[j + 1]);
-                }
-              }
-            }
-          }
-        }
-        
-        // 其他情况：如果没有面数据但顶点数>=3，尝试创建面
-        if (indices.length === 0 && vertices.length >= 3) {
-          console.log('创建默认面数据');
-          // 三角剖分处理
-          for (let j = 1; j < vertices.length - 1; j++) {
-            indices.push(0, j, j + 1);
-          }
-        }
+      // 计算法线（如果几何体没有法线）
+      if (!geometry.attributes.normal) {
+        geometry.computeVertexNormals();
       }
-      
-      if (indices.length > 0) {
-        geometry.setIndex(indices);
-      }
-      
-      // 计算法线
-      geometry.computeVertexNormals();
       
       // 创建材质
-      // 优化材质设置，使用更适合在模型上显示的参数
       const material = new THREE.MeshBasicMaterial({
         color: new THREE.Color(color),
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.8, // 稍微提高不透明度，使其更容易辨识
-        depthTest: true, // 确保深度测试正确
+        opacity: 0.8,
+        depthTest: true,
         depthWrite: true
       });
       
@@ -2085,8 +2042,6 @@ class PlyRenderer {
         faceCenter.divideScalar(vertices.length);
         
         console.log('PLY面中心点坐标:', faceCenter);
-        console.log('PLY面顶点数量:', vertices.length);
-        console.log('PLY面顶点坐标:', vertices);
         
         // 创建辅助点来标记面的中心位置
         const centerGeometry = new THREE.BufferGeometry();
@@ -2094,8 +2049,8 @@ class PlyRenderer {
         centerGeometry.setAttribute('position', new THREE.BufferAttribute(centerPosition, 3));
         
         const centerMaterial = new THREE.PointsMaterial({
-          color: 0xFF0000, // 红色标记中心点
-          size: 3, // 较大的点大小，使其更明显
+          color: 0xFF0000,
+          size: 3,
           sizeAttenuation: true
         });
         
@@ -2140,8 +2095,6 @@ class PlyRenderer {
         this._fitCameraToObject(mesh, true);
       }
       
-      // 计算面数（每个面由3个索引组成）
-      const finalFaceCount = indices.length / 3;
       // 计算并记录坐标范围，帮助诊断坐标系统问题
       let minX = Infinity, maxX = -Infinity;
       let minY = Infinity, maxY = -Infinity;
@@ -2177,6 +2130,8 @@ class PlyRenderer {
         console.warn('警告: PLY坐标值较大，可能存在坐标系统缩放问题');
       }
       
+      // 计算面数（如果有索引）
+      const finalFaceCount = geometry.index ? geometry.index.count / 3 : 0;
       console.log('PLY模型渲染成功，顶点数:', vertices.length, '面数:', finalFaceCount);
       
       // 渲染完成后，恢复控制器状态

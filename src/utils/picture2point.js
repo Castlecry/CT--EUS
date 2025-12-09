@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 
 /**
  * 图像2点管理器，负责处理图像上传、API调用和结果处理
@@ -191,46 +192,46 @@ class Picture2PointManager {
    */
   async _parsePlyFile(plyBlob) {
     try {
-      const text = await this._blobToText(plyBlob);
-      const lines = text.trim().split('\n');
+      // 将Blob转换为URL
+      const plyUrl = URL.createObjectURL(plyBlob);
       
-      // 查找顶点数据开始的位置
-      let vertexStartIndex = -1;
-      let vertexCount = 0;
+      // 使用Three.js的PLYLoader加载PLY文件
+      const loader = new PLYLoader();
       
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        
-        if (line.startsWith('element vertex')) {
-          vertexCount = parseInt(line.split(' ')[2], 10);
-        }
-        
-        if (line === 'end_header') {
-          vertexStartIndex = i + 1;
-          break;
-        }
+      // 使用Promise包装load方法，以便使用async/await
+      const geometry = await new Promise((resolve, reject) => {
+        loader.load(plyUrl, 
+          (loadedGeometry) => {
+            resolve(loadedGeometry);
+          },
+          (progress) => {
+            console.log('PLY加载进度:', (progress.loaded / progress.total * 100) + '%');
+          },
+          (error) => {
+            console.error('PLY加载错误:', error);
+            reject(error);
+          }
+        );
+      });
+      
+      // 释放URL对象
+      URL.revokeObjectURL(plyUrl);
+      
+      // 检查几何体是否有效
+      if (!geometry || !geometry.attributes.position) {
+        throw new Error('加载的PLY文件无效或不包含顶点数据');
       }
-
-      if (vertexStartIndex === -1) {
-        throw new Error('无效的PLY文件格式，未找到头部结束标记');
-      }
-
-      // 提取顶点坐标
+      
+      // 提取顶点数据
+      const positions = geometry.attributes.position.array;
       const points = [];
-      const endIndex = Math.min(vertexStartIndex + vertexCount, lines.length);
       
-      for (let i = vertexStartIndex; i < endIndex; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        const coords = line.split(/\s+/);
-        if (coords.length >= 3) {
-          points.push({
-            x: parseFloat(coords[0]),
-            y: parseFloat(coords[1]),
-            z: parseFloat(coords[2])
-          });
-        }
+      for (let i = 0; i < positions.length; i += 3) {
+        points.push({
+          x: positions[i],
+          y: positions[i+1],
+          z: positions[i+2]
+        });
       }
 
       console.log('成功解析PLY文件，获取到', points.length, '个点');
@@ -239,20 +240,6 @@ class Picture2PointManager {
       console.error('解析PLY文件失败:', error);
       throw new Error(`解析PLY文件失败: ${error.message}`);
     }
-  }
-
-  /**
-   * 将Blob转换为文本
-   * @param {Blob} blob - Blob对象
-   * @returns {Promise<string>} 文本内容
-   */
-  async _blobToText(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsText(blob);
-    });
   }
 
   /**
