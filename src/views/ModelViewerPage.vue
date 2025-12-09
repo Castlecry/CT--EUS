@@ -1821,6 +1821,18 @@ const autoInitializePoint2CT = () => {
   // 重置选点状态，确保状态干净
   resetPoint2CT();
   
+  // 启用吸附功能，将阈值从5增加到15，使用正确的点位处理函数
+  try {
+    // 先禁用再重新启用，确保吸附功能正确初始化
+    if (plyRenderer.value.disableSnapToClosestPoint) {
+      plyRenderer.value.disableSnapToClosestPoint();
+    }
+    plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
+    console.log('自动初始化：已启用吸附功能');
+  } catch (error) {
+    console.error('自动初始化：启用吸附功能失败:', error);
+  }
+  
   console.log('点2CT选点功能已自动初始化，可以正常使用');
 };
 
@@ -1832,8 +1844,8 @@ const handlePointSelection = (pointData) => {
   selectedPoint.value = pointData.coordinate;
   selectedPointNormal.value = pointData.normal;
   
-  // 在渲染器中高亮显示选中的点（红色）
-  plyRenderer.value.highlightPoint(pointData.coordinate, { color: [1, 0, 0] });
+  // 在渲染器中高亮显示选中的点（蓝色）
+  plyRenderer.value.highlightPoint(pointData.coordinate, { type: 'selected', color: [0, 0, 1] });
   
   // 初始化point2CTManager
   point2CTManager.setSelectedPoint(pointData.coordinate, pointData.normal);

@@ -26,6 +26,10 @@ class PlyRenderer {
     // 校准轨迹相关
     this.calibrationTrajectories = new Map(); // 存储校准轨迹
     this.currentCalibrationTrajectory = null; // 当前显示的校准轨迹
+    
+    // 高亮相关属性
+    this.highlightedPointMesh = null; // 用于显示吸附点（红色）
+    this.selectedPointMesh = null; // 用于显示选中点（蓝色）
   }
 
   /**
@@ -1734,6 +1738,110 @@ class PlyRenderer {
   }
 
   /**
+   * 清除PLY模型显示
+   * 移除渲染的PLY面和中心点标记
+   */
+  clearPLY() {
+    if (!this._initialized) {
+      return;
+    }
+
+    try {
+      // 获取原始场景对象
+      const rawScene = toRaw(this.scene);
+      
+      // 移除PLY生成的网格
+      const existingMesh = rawScene.getObjectByName('point2CTGeneratedMesh');
+      if (existingMesh) {
+        rawScene.remove(existingMesh);
+        existingMesh.geometry.dispose();
+        existingMesh.material.dispose();
+        console.log('已清除PLY生成的网格');
+      }
+      
+      // 移除中心点标记
+      const existingCenterPoint = rawScene.getObjectByName('point2CTFaceCenter');
+      if (existingCenterPoint) {
+        rawScene.remove(existingCenterPoint);
+        existingCenterPoint.geometry.dispose();
+        existingCenterPoint.material.dispose();
+        console.log('已清除PLY中心点标记');
+      }
+      
+      // 移除正方形显示
+      this.showSquare(null);
+      
+      // 清除选中点高亮
+      this.highlightPoint(null, { type: 'selected' });
+      
+      console.log('PLY模型显示已清除');
+    } catch (error) {
+      console.error('清除PLY模型显示失败:', error);
+    }
+  }
+
+  /**
+   * 显示正方形
+   * @param {Array} squarePoints - 正方形的四个点坐标
+   */
+  showSquare(squarePoints) {
+    if (!this._initialized) {
+      return;
+    }
+
+    try {
+      // 获取原始场景对象
+      const rawScene = toRaw(this.scene);
+      
+      // 移除之前的正方形
+      const existingSquare = rawScene.getObjectByName('point2CTSquare');
+      if (existingSquare) {
+        rawScene.remove(existingSquare);
+        existingSquare.geometry.dispose();
+        existingSquare.material.dispose();
+      }
+      
+      // 如果没有提供正方形点，直接返回
+      if (!squarePoints || squarePoints.length < 4) {
+        return;
+      }
+      
+      // 创建正方形的几何体
+      const geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array([
+        squarePoints[0].x, squarePoints[0].y, squarePoints[0].z,
+        squarePoints[1].x, squarePoints[1].y, squarePoints[1].z,
+        squarePoints[2].x, squarePoints[2].y, squarePoints[2].z,
+        squarePoints[3].x, squarePoints[3].y, squarePoints[3].z
+      ]);
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      
+      // 创建索引
+      const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      
+      // 创建材质
+      const material = new THREE.MeshBasicMaterial({ 
+        color: 0x0000FF, 
+        transparent: true, 
+        opacity: 0.5,
+        side: THREE.DoubleSide 
+      });
+      
+      // 创建正方形网格
+      const squareMesh = new THREE.Mesh(geometry, material);
+      squareMesh.name = 'point2CTSquare';
+      
+      // 添加到场景
+      rawScene.add(squareMesh);
+      
+      console.log('正方形已添加到场景');
+    } catch (error) {
+      console.error('显示正方形失败:', error);
+    }
+  }
+
+  /**
    * 检查是否有指定器官的PLY数据
    * @param {string} organName - 器官名称
    * @returns {boolean} 是否存在
@@ -1800,18 +1908,25 @@ class PlyRenderer {
   }
 
   /**
-   * 高亮显示指定的点
-   * @param {THREE.Vector3|null} point - 要高亮的点坐标，如果为null则清除高亮
-   * @param {Object} options - 可选配置
+   * 高亮显示一个点
+   * @param {THREE.Vector3|null} point - 要高亮的点，null表示清除高亮
+   * @param {Object} options - 高亮选项
    * @param {Array} options.color - RGB颜色数组 [r, g, b]，值范围0-1
+   * @param {string} options.type - 高亮类型：'highlight'（吸附点，默认红色）或 'selected'（选中点，默认蓝色）
    */
+
   highlightPoint(point, options = {}) {
-    // 如果有之前的高亮点，清除它
-    if (this.highlightedPointMesh) {
-      this.scene.remove(this.highlightedPointMesh);
-      this.highlightedPointMesh.geometry.dispose();
-      this.highlightedPointMesh.material.dispose();
-      this.highlightedPointMesh = null;
+    const type = options.type || 'highlight'; // 'highlight' 或 'selected'
+    
+    // 根据类型选择对应的网格对象
+    const targetMesh = type === 'highlight' ? 'highlightedPointMesh' : 'selectedPointMesh';
+    
+    // 如果有之前的点，清除它
+    if (this[targetMesh]) {
+      this.scene.remove(this[targetMesh]);
+      this[targetMesh].geometry.dispose();
+      this[targetMesh].material.dispose();
+      this[targetMesh] = null;
     }
     
     // 如果提供了有效的点，创建高亮显示
@@ -1820,7 +1935,7 @@ class PlyRenderer {
       const geometry = new THREE.SphereGeometry(2, 16, 16); // 半径为2，细分度16
       
       // 处理颜色选项
-      let color = 0xff0000; // 默认红色
+      let color = type === 'highlight' ? 0xff0000 : 0x0000ff; // 高亮默认红色，选中默认蓝色
       if (options.color && Array.isArray(options.color) && options.color.length >= 3) {
         // 从RGB数组转换为十六进制
         const r = Math.floor(options.color[0] * 255);
@@ -1836,11 +1951,11 @@ class PlyRenderer {
         opacity: 0.8
       });
       // 创建网格对象
-      this.highlightedPointMesh = new THREE.Mesh(geometry, material);
+      this[targetMesh] = new THREE.Mesh(geometry, material);
       // 设置位置
-      this.highlightedPointMesh.position.copy(point);
+      this[targetMesh].position.copy(point);
       // 添加到场景
-      this.scene.add(this.highlightedPointMesh);
+      this.scene.add(this[targetMesh]);
     }
   }
 
@@ -2094,9 +2209,9 @@ class PlyRenderer {
         // 保留PLY面的原始坐标位置，不进行偏移
         console.log('保持PLY面的原始坐标位置，不进行偏移');
         
-        // 调整相机位置，但不移动模型
-        // 使用focusScene=true参数，让相机聚焦于整个场景而不仅是新创建的面
-        this._fitCameraToObject(mesh, true);
+        // 注释掉相机调整，保持原始视角
+        // this._fitCameraToObject(mesh, true);
+        console.log('保持原始相机视角，不进行调整');
       }
       
       // 计算并记录坐标范围，帮助诊断坐标系统问题

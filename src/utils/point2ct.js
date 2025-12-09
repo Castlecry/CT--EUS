@@ -277,12 +277,22 @@ class Point2CTManager {
   }
   
   /**
+   * 计算面法向量
+   * 兼容ModelViewerPage.vue中的confirmSecondAngle函数调用
+   */
+  calculateFaceNormal() {
+    // 实现面法向量计算逻辑
+    console.log('计算面法向量');
+    // 这里可以根据需要实现具体的法向量计算
+  }
+
+  /**
    * 围绕法向量旋转
    * 兼容ModelViewerPage.vue中的updateThirdAngle函数调用
    * @param {number} angle - 旋转角度（度数）
    * @returns {number} 设置后的角度值
    */
-  rotateAroundFacetNormal(angle) {
+  rotateAroundFaceNormal(angle) {
     // 限制角度范围在0-180度
     this.旋转角度3 = Math.max(0, Math.min(180, angle));
     console.log(`设置第三个角度: ${this.旋转角度3}度`);
