@@ -298,6 +298,41 @@ class Point2CTManager {
     console.log(`设置第三个角度: ${this.旋转角度3}度`);
     return this.旋转角度3;
   }
+
+  /**
+   * 获取正方形的四个顶点坐标
+   * 兼容ModelViewerPage.vue中的updateThirdAngle函数调用
+   * @returns {Object} 包含四个顶点坐标的对象
+   */
+  getSquarePoints() {
+    // 简化实现：返回一个以选中点为中心的正方形
+    if (!this.选中的点 || !this.选中点法向量) {
+      console.error('获取正方形点：缺少选中点或法向量');
+      return null;
+    }
+
+    // 计算正方形的四个顶点
+    const sideLength = this.正方形边长;
+    const center = this.选中的点;
+    const normal = this.选中点法向量;
+
+    // 计算两个垂直于法向量的向量
+    const v1 = new THREE.Vector3(1, 0, 0);
+    if (Math.abs(normal.dot(v1)) > 0.9) {
+      v1.set(0, 1, 0);
+    }
+    v1.cross(normal).normalize().multiplyScalar(sideLength / 2);
+    const v2 = new THREE.Vector3().crossVectors(normal, v1).normalize().multiplyScalar(sideLength / 2);
+
+    // 计算四个顶点
+    const p1 = new THREE.Vector3().copy(center).sub(v1).sub(v2);
+    const p2 = new THREE.Vector3().copy(center).add(v1).sub(v2);
+    const p3 = new THREE.Vector3().copy(center).add(v1).add(v2);
+    const p4 = new THREE.Vector3().copy(center).sub(v1).add(v2);
+
+    console.log('获取正方形点：', [p1, p2, p3, p4].map(p => p.toArray()));
+    return { p1, p2, p3, p4 };
+  }
 }
 
 // 导出实例
@@ -315,7 +350,10 @@ export const {
   setUnitVector,
   setFirstAngle,
   setSecondAngle,
-  setSelectedPoint
+  setSelectedPoint,
+  calculateFaceNormal,
+  rotateAroundFaceNormal,
+  getSquarePoints
 } = point2CTManager;
 
 export default point2CTManager;
