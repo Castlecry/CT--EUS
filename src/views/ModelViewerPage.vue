@@ -998,42 +998,61 @@ const deleteImage2PointRecord = (recordId) => {
 };
 
 /**
- * 从点坐标数组渲染正方形面
- * @param {Array} points - 点坐标数组
+ * 从点坐标数组渲染面
+ * @param {Array} points - 点坐标数组（支持4个点组成正方形或6个点组成两个三角形）
  */
 const renderSquareFromPLY = async (points) => {
   try {
-    if (!points || points.length < 4) {
-      console.error('渲染正方形失败：点数据不足4个点');
+    if (!points || (points.length < 4 || (points.length > 4 && points.length < 6))) {
+      console.error('渲染面失败：点数据不足4个点或为5个点（仅支持4点或6点）');
       return false;
     }
 
-    console.log('开始渲染正方形面，点数：', points.length);
+    console.log('开始渲染面，点数：', points.length);
     console.log('顶点坐标:', points.map(p => ({x: p.x, y: p.y, z: p.z})));
     
-    // 简化渲染逻辑，直接使用THREE.js API创建四边形面
+    // 简化渲染逻辑，直接使用THREE.js API创建面
     // 不再依赖plyRenderer的特定方法，以避免兼容性问题
     if (renderer.value && renderer.value.scene) {
-      console.log('使用THREE.js渲染器直接创建正方形面');
+      console.log('使用THREE.js渲染器直接创建面');
       
-      // 创建正方形面几何体
-      const squareGeometry = new THREE.BufferGeometry();
+      // 创建面几何体
+      const faceGeometry = new THREE.BufferGeometry();
       
-      // 直接使用4个顶点的坐标
-      const positions = new Float32Array([
-        points[0].x, points[0].y, points[0].z,
-        points[1].x, points[1].y, points[1].z,
-        points[2].x, points[2].y, points[2].z,
-        points[3].x, points[3].y, points[3].z
-      ]);
+      // 直接使用顶点的坐标
+      let positions, indices;
       
-      squareGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      if (points.length === 4) {
+        // 4点格式（正方形，由两个三角形组成）
+        positions = new Float32Array([
+          points[0].x, points[0].y, points[0].z,
+          points[1].x, points[1].y, points[1].z,
+          points[2].x, points[2].y, points[2].z,
+          points[3].x, points[3].y, points[3].z
+        ]);
+        
+        // 使用两个三角形组成四边形，确保正确的面连接
+        indices = [0, 1, 2, 0, 2, 3];
+      } else if (points.length === 6) {
+        // 6点格式（两个三角形）
+        positions = new Float32Array([
+          points[0].x, points[0].y, points[0].z,
+          points[1].x, points[1].y, points[1].z,
+          points[2].x, points[2].y, points[2].z,
+          points[3].x, points[3].y, points[3].z,
+          points[4].x, points[4].y, points[4].z,
+          points[5].x, points[5].y, points[5].z
+        ]);
+        
+        // 使用前3个点创建第一个三角形，后3个点创建第二个三角形
+        indices = [0, 1, 2, 3, 4, 5];
+      }
       
-      // 使用两个三角形组成四边形，确保正确的面连接
-      squareGeometry.setIndex([0, 1, 2, 0, 2, 3]);
+      faceGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      faceGeometry.setIndex(indices);
       
       // 计算法线以确保正确的光照效果
-      squareGeometry.computeVertexNormals();
+      faceGeometry.computeVertexNormals();
       
       // 创建半透明绿色材质
       const material = new THREE.MeshBasicMaterial({
@@ -1044,11 +1063,11 @@ const renderSquareFromPLY = async (points) => {
       });
       
       // 创建网格对象
-      const square = new THREE.Mesh(squareGeometry, material);
-      square.name = 'image2point-square-face';
+      const face = new THREE.Mesh(faceGeometry, material);
+      face.name = 'image2point-face';
       
       // 添加到场景
-      renderer.value.scene.add(square);
+      renderer.value.scene.add(face);
       
       // 同时添加顶点作为可视点，方便调试
       const pointsGeometry = new THREE.BufferGeometry();
@@ -1061,10 +1080,14 @@ const renderSquareFromPLY = async (points) => {
       });
       
       const pointsObject = new THREE.Points(pointsGeometry, pointsMaterial);
-      pointsObject.name = 'image2point-square-vertices';
+      pointsObject.name = 'image2point-vertices';
       renderer.value.scene.add(pointsObject);
       
-      console.log('正方形面已成功渲染到场景，包含4个顶点和一个四边形面');
+      if (points.length === 4) {
+        console.log('正方形面已成功渲染到场景，包含4个顶点和两个三角形');
+      } else if (points.length === 6) {
+        console.log('两个三角形面已成功渲染到场景，包含6个顶点和两个三角形');
+      }
       return true;
     }
     

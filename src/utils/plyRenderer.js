@@ -1461,14 +1461,14 @@ class PlyRenderer {
   }
   
   /**
-   * 渲染正方形面
+   * 渲染面
    * @private
    * @param {Object} targetPoint - 轨迹点
-   * @param {Array} facePoints - 正方形面的四个顶点
-   * @param {number} color - 正方形面颜色
+   * @param {Array} facePoints - 面的顶点（4个点组成正方形或6个点组成两个三角形）
+   * @param {number} color - 面颜色
    */
   _renderSquareFace(targetPoint, facePoints, color) {
-    if (!facePoints || facePoints.length !== 4) return;
+    if (!facePoints || (facePoints.length !== 4 && facePoints.length !== 6)) return;
     
     // 创建面材质
     const material = new THREE.MeshBasicMaterial({
@@ -1480,16 +1480,29 @@ class PlyRenderer {
     
     // 创建几何体
     const geometry = new THREE.BufferGeometry();
+    let positions;
     
-    // 创建顶点数组（正方形面需要6个顶点来形成两个三角形）
-    const positions = new Float32Array([
-      facePoints[0].x, facePoints[0].y, facePoints[0].z,
-      facePoints[1].x, facePoints[1].y, facePoints[1].z,
-      facePoints[2].x, facePoints[2].y, facePoints[2].z,
-      facePoints[0].x, facePoints[0].y, facePoints[0].z,
-      facePoints[2].x, facePoints[2].y, facePoints[2].z,
-      facePoints[3].x, facePoints[3].y, facePoints[3].z
-    ]);
+    if (facePoints.length === 4) {
+      // 4点格式（正方形）
+      positions = new Float32Array([
+        facePoints[0].x, facePoints[0].y, facePoints[0].z,
+        facePoints[1].x, facePoints[1].y, facePoints[1].z,
+        facePoints[2].x, facePoints[2].y, facePoints[2].z,
+        facePoints[0].x, facePoints[0].y, facePoints[0].z,
+        facePoints[2].x, facePoints[2].y, facePoints[2].z,
+        facePoints[3].x, facePoints[3].y, facePoints[3].z
+      ]);
+    } else if (facePoints.length === 6) {
+      // 6点格式（两个三角形）
+      positions = new Float32Array([
+        facePoints[0].x, facePoints[0].y, facePoints[0].z,
+        facePoints[1].x, facePoints[1].y, facePoints[1].z,
+        facePoints[2].x, facePoints[2].y, facePoints[2].z,
+        facePoints[3].x, facePoints[3].y, facePoints[3].z,
+        facePoints[4].x, facePoints[4].y, facePoints[4].z,
+        facePoints[5].x, facePoints[5].y, facePoints[5].z
+      ]);
+    }
     
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     
@@ -1781,10 +1794,10 @@ class PlyRenderer {
   }
 
   /**
-   * 显示正方形
-   * @param {Array} squarePoints - 正方形的四个点坐标
+   * 显示由两个三角形组成的面
+   * @param {Array} facePoints - 6个点坐标数组，前3个点组成一个三角形，后3个点组成另一个三角形
    */
-  showSquare(squarePoints) {
+  showSquare(facePoints) {
     if (!this._initialized) {
       return;
     }
@@ -1793,49 +1806,72 @@ class PlyRenderer {
       // 获取原始场景对象
       const rawScene = toRaw(this.scene);
       
-      // 移除之前的正方形
-      const existingSquare = rawScene.getObjectByName('point2CTSquare');
-      if (existingSquare) {
-        rawScene.remove(existingSquare);
-        existingSquare.geometry.dispose();
-        existingSquare.material.dispose();
+      // 移除之前的面
+      const existingFace = rawScene.getObjectByName('point2CTSquare');
+      if (existingFace) {
+        rawScene.remove(existingFace);
+        existingFace.geometry.dispose();
+        existingFace.material.dispose();
       }
       
-      // 如果没有提供正方形点，直接返回
-      if (!squarePoints) {
+      // 如果没有提供点，直接返回
+      if (!facePoints) {
         return;
       }
       
-      // 处理两种格式的squarePoints：对象格式 {p1,p2,p3,p4} 和数组格式 [p1,p2,p3,p4]
+      // 处理两种格式：数组格式和对象格式
       let points;
-      if (Array.isArray(squarePoints)) {
-        points = squarePoints;
-      } else if (squarePoints.p1 && squarePoints.p2 && squarePoints.p3 && squarePoints.p4) {
-        points = [squarePoints.p1, squarePoints.p2, squarePoints.p3, squarePoints.p4];
+      if (Array.isArray(facePoints)) {
+        points = facePoints;
       } else {
-        console.error('无效的squarePoints格式');
-        return;
+        // 处理对象格式，支持4点和6点格式
+        if (facePoints.p1 && facePoints.p2 && facePoints.p3 && facePoints.p4) {
+          // 旧的4点格式
+          points = [facePoints.p1, facePoints.p2, facePoints.p3, facePoints.p4];
+        } else if (facePoints.p1 && facePoints.p2 && facePoints.p3 && facePoints.p4 && facePoints.p5 && facePoints.p6) {
+          // 新的6点格式
+          points = [facePoints.p1, facePoints.p2, facePoints.p3, facePoints.p4, facePoints.p5, facePoints.p6];
+        } else {
+          console.error('无效的facePoints格式');
+          return;
+        }
       }
       
-      // 确保有4个点
-      if (points.length < 4) {
-        console.error('squarePoints需要至少4个点');
-        return;
-      }
-      
-      // 创建正方形的几何体
+      // 创建几何体
       const geometry = new THREE.BufferGeometry();
-      const positions = new Float32Array([
-        points[0].x, points[0].y, points[0].z,
-        points[1].x, points[1].y, points[1].z,
-        points[2].x, points[2].y, points[2].z,
-        points[3].x, points[3].y, points[3].z
-      ]);
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       
-      // 创建索引 - 绘制两个三角形组成正方形
-      const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      if (points.length === 4) {
+        // 旧的4点格式（正方形）
+        const positions = new Float32Array([
+          points[0].x, points[0].y, points[0].z,
+          points[1].x, points[1].y, points[1].z,
+          points[2].x, points[2].y, points[2].z,
+          points[3].x, points[3].y, points[3].z
+        ]);
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        // 创建索引 - 绘制两个三角形组成正方形
+        const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+        geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      } else if (points.length === 6) {
+        // 新的6点格式（两个三角形）
+        const positions = new Float32Array([
+          points[0].x, points[0].y, points[0].z,
+          points[1].x, points[1].y, points[1].z,
+          points[2].x, points[2].y, points[2].z,
+          points[3].x, points[3].y, points[3].z,
+          points[4].x, points[4].y, points[4].z,
+          points[5].x, points[5].y, points[5].z
+        ]);
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        // 创建索引 - 绘制两个独立的三角形
+        const indices = new Uint16Array([0, 1, 2, 3, 4, 5]);
+        geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      } else {
+        console.error('facePoints需要4个点（正方形）或6个点（两个三角形）');
+        return;
+      }
       
       // 创建材质
       const material = new THREE.MeshBasicMaterial({ 
@@ -1845,16 +1881,16 @@ class PlyRenderer {
         side: THREE.DoubleSide 
       });
       
-      // 创建正方形网格
-      const squareMesh = new THREE.Mesh(geometry, material);
-      squareMesh.name = 'point2CTSquare';
+      // 创建网格
+      const faceMesh = new THREE.Mesh(geometry, material);
+      faceMesh.name = 'point2CTSquare';
       
       // 添加到场景
-      rawScene.add(squareMesh);
+      rawScene.add(faceMesh);
       
-      console.log('正方形已添加到场景');
+      console.log(`已添加${points.length}点组成的面到场景`);
     } catch (error) {
-      console.error('显示正方形失败:', error);
+      console.error('显示面失败:', error);
     }
   }
 
