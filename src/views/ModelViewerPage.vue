@@ -686,6 +686,8 @@
                           v-for="record in image2PointRecords" 
                           :key="record.id"
                           class="history-item"
+                          @click="onImage2PointRecordClick(record)"
+                          :class="{ 'active': currentImage2PointRecordId === record.id }"
                         >
                           <div class="record-header">
                             <span class="record-time">{{ new Date(record.timestamp).toLocaleString() }}</span>
@@ -989,10 +991,33 @@ const toggleImage2PointHistory = () => {
   showImage2PointHistory.value = !showImage2PointHistory.value;
 };
 
+// 当前显示的历史记录ID
+const currentImage2PointRecordId = ref(null);
+
+// 点击历史记录
+const onImage2PointRecordClick = (record) => {
+  if (currentImage2PointRecordId.value === record.id) {
+    // 如果点击的是当前显示的记录，清除渲染
+    clearImage2PointRender();
+    currentImage2PointRecordId.value = null;
+  } else {
+    // 渲染新的记录
+    if (record.files.points) {
+      renderSquareFromPLY(record.files.points);
+      currentImage2PointRecordId.value = record.id;
+    }
+  }
+};
+
 // 删除历史记录
 const deleteImage2PointRecord = (recordId) => {
   if (confirm('确定要删除这条记录吗？')) {
     image2PointRecords.value = image2PointRecords.value.filter(record => record.id !== recordId);
+    // 如果删除的是当前显示的记录，清除渲染
+    if (currentImage2PointRecordId.value === recordId) {
+      clearImage2PointRender();
+      currentImage2PointRecordId.value = null;
+    }
     // 可以在这里添加保存到本地存储的逻辑
   }
 };
@@ -1003,8 +1028,8 @@ const deleteImage2PointRecord = (recordId) => {
  */
 const renderSquareFromPLY = async (points) => {
   try {
-    if (!points || (points.length < 4 || (points.length > 4 && points.length < 6))) {
-      console.error('渲染面失败：点数据不足4个点或为5个点（仅支持4点或6点）');
+    if (!points || (points.length !== 4 && points.length !== 6)) {
+      console.error('渲染面失败：点数据不符合要求（仅支持4点或6点）');
       return false;
     }
 
@@ -1016,15 +1041,17 @@ const renderSquareFromPLY = async (points) => {
     if (renderer.value && renderer.value.scene) {
       console.log('使用THREE.js渲染器直接创建面');
       
-      // 创建面几何体
-      const faceGeometry = new THREE.BufferGeometry();
+      // 清除之前的渲染内容
+      clearImage2PointRender();
       
       // 直接使用顶点的坐标
-      let positions, indices;
+      let facePositions, faceIndices;
+      let face1Positions, face1Indices;
+      let face2Positions, face2Indices;
       
       if (points.length === 4) {
         // 4点格式（正方形，由两个三角形组成）
-        positions = new Float32Array([
+        facePositions = new Float32Array([
           points[0].x, points[0].y, points[0].z,
           points[1].x, points[1].y, points[1].z,
           points[2].x, points[2].y, points[2].z,
@@ -1032,56 +1059,107 @@ const renderSquareFromPLY = async (points) => {
         ]);
         
         // 使用两个三角形组成四边形，确保正确的面连接
-        indices = [0, 1, 2, 0, 2, 3];
+        faceIndices = [0, 1, 2, 0, 2, 3];
+        
+        // 创建面几何体
+        const faceGeometry = new THREE.BufferGeometry();
+        faceGeometry.setAttribute('position', new THREE.BufferAttribute(facePositions, 3));
+        faceGeometry.setIndex(faceIndices);
+        faceGeometry.computeVertexNormals();
+        
+        // 创建半透明绿色材质
+        const material = new THREE.MeshBasicMaterial({
+          color: 0x00ff00,  // 绿色
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.DoubleSide
+        });
+        
+        // 创建网格对象
+        const face = new THREE.Mesh(faceGeometry, material);
+        face.name = 'image2point-face';
+        
+        // 添加到场景
+        renderer.value.scene.add(face);
+        
+        // 同时添加顶点作为可视点，方便调试
+        const pointsGeometry = new THREE.BufferGeometry();
+        pointsGeometry.setAttribute('position', new THREE.BufferAttribute(facePositions, 3));
+        
+        const pointsMaterial = new THREE.PointsMaterial({
+          color: 0xff0000,  // 红色顶点
+          size: 2.0,
+          sizeAttenuation: true
+        });
+        
+        const pointsObject = new THREE.Points(pointsGeometry, pointsMaterial);
+        pointsObject.name = 'image2point-vertices';
+        renderer.value.scene.add(pointsObject);
+        
       } else if (points.length === 6) {
         // 6点格式（两个三角形）
-        positions = new Float32Array([
+        face1Positions = new Float32Array([
           points[0].x, points[0].y, points[0].z,
           points[1].x, points[1].y, points[1].z,
-          points[2].x, points[2].y, points[2].z,
+          points[2].x, points[2].y, points[2].z
+        ]);
+        face1Indices = [0, 1, 2];
+        
+        face2Positions = new Float32Array([
           points[3].x, points[3].y, points[3].z,
           points[4].x, points[4].y, points[4].z,
           points[5].x, points[5].y, points[5].z
         ]);
+        face2Indices = [0, 1, 2];
         
-        // 使用前3个点创建第一个三角形，后3个点创建第二个三角形
-        indices = [0, 1, 2, 3, 4, 5];
+        // 创建半透明绿色材质
+        const material = new THREE.MeshBasicMaterial({
+          color: 0x00ff00,  // 绿色
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.DoubleSide
+        });
+        
+        // 创建第一个三角形面
+        const face1Geometry = new THREE.BufferGeometry();
+        face1Geometry.setAttribute('position', new THREE.BufferAttribute(face1Positions, 3));
+        face1Geometry.setIndex(face1Indices);
+        face1Geometry.computeVertexNormals();
+        
+        const face1 = new THREE.Mesh(face1Geometry, material);
+        face1.name = 'image2point-face-1';
+        renderer.value.scene.add(face1);
+        
+        // 创建第二个三角形面
+        const face2Geometry = new THREE.BufferGeometry();
+        face2Geometry.setAttribute('position', new THREE.BufferAttribute(face2Positions, 3));
+        face2Geometry.setIndex(face2Indices);
+        face2Geometry.computeVertexNormals();
+        
+        const face2 = new THREE.Mesh(face2Geometry, material);
+        face2.name = 'image2point-face-2';
+        renderer.value.scene.add(face2);
+        
+        // 同时添加顶点作为可视点，方便调试
+        const allPositions = new Float32Array([
+          ...face1Positions,
+          ...face2Positions
+        ]);
+        
+        const pointsGeometry = new THREE.BufferGeometry();
+        pointsGeometry.setAttribute('position', new THREE.BufferAttribute(allPositions, 3));
+        
+        const pointsMaterial = new THREE.PointsMaterial({
+          color: 0xff0000,  // 红色顶点
+          size: 2.0,
+          sizeAttenuation: true
+        });
+        
+        const pointsObject = new THREE.Points(pointsGeometry, pointsMaterial);
+        pointsObject.name = 'image2point-vertices';
+        renderer.value.scene.add(pointsObject);
+        
       }
-      
-      faceGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      faceGeometry.setIndex(indices);
-      
-      // 计算法线以确保正确的光照效果
-      faceGeometry.computeVertexNormals();
-      
-      // 创建半透明绿色材质
-      const material = new THREE.MeshBasicMaterial({
-        color: 0x00ff00,  // 绿色
-        transparent: true,
-        opacity: 0.5,
-        side: THREE.DoubleSide
-      });
-      
-      // 创建网格对象
-      const face = new THREE.Mesh(faceGeometry, material);
-      face.name = 'image2point-face';
-      
-      // 添加到场景
-      renderer.value.scene.add(face);
-      
-      // 同时添加顶点作为可视点，方便调试
-      const pointsGeometry = new THREE.BufferGeometry();
-      pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      
-      const pointsMaterial = new THREE.PointsMaterial({
-        color: 0xff0000,  // 红色顶点
-        size: 2.0,
-        sizeAttenuation: true
-      });
-      
-      const pointsObject = new THREE.Points(pointsGeometry, pointsMaterial);
-      pointsObject.name = 'image2point-vertices';
-      renderer.value.scene.add(pointsObject);
       
       if (points.length === 4) {
         console.log('正方形面已成功渲染到场景，包含4个顶点和两个三角形');
@@ -1098,6 +1176,40 @@ const renderSquareFromPLY = async (points) => {
   } catch (error) {
     console.error('渲染正方形面时出错:', error);
     return false;
+  }
+};
+
+/**
+ * 清除上传图片功能的渲染内容
+ */
+const clearImage2PointRender = () => {
+  if (renderer.value && renderer.value.scene) {
+    const scene = renderer.value.scene;
+    const objectsToRemove = [];
+    
+    // 查找所有需要删除的对象
+    scene.traverse((object) => {
+      if (object.name && object.name.startsWith('image2point-')) {
+        objectsToRemove.push(object);
+      }
+    });
+    
+    // 删除找到的对象
+    objectsToRemove.forEach((object) => {
+      scene.remove(object);
+      // 释放几何体资源
+      if (object.geometry) {
+        object.geometry.dispose();
+      }
+      // 释放材质资源
+      if (object.material) {
+        if (Array.isArray(object.material)) {
+          object.material.forEach(material => material.dispose());
+        } else {
+          object.material.dispose();
+        }
+      }
+    });
   }
 }
 const loadingAll = ref(false);

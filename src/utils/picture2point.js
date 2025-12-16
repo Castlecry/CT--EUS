@@ -243,33 +243,53 @@ class Picture2PointManager {
   }
 
   /**
-   * 根据四个点生成正方形面的顶点和面索引数据
-   * @param {Array} points - 四个点的坐标数组
+   * 根据点生成面的顶点和面索引数据
+   * @param {Array} points - 点的坐标数组（支持4个点组成正方形或6个点组成两个三角形）
    * @returns {Object} 包含顶点和面索引的对象
    */
   generateSquareFaceData(points) {
-    if (!points || points.length < 4) {
-      throw new Error('生成正方形面需要至少4个点');
+    if (!points || (points.length !== 4 && points.length !== 6)) {
+      throw new Error('生成面需要4个点或6个点');
     }
 
-    // 使用前四个点作为正方形的顶点
-    // 确保按用户提供的PLY格式顺序使用顶点
-    const vertices = points.slice(0, 4).map(point => [point.x, point.y, point.z]);
+    console.log('处理的点坐标:', points.map(point => [point.x, point.y, point.z]));
     
-    console.log('处理的4个顶点坐标:', vertices);
-    
-    // 定义正方形的两个三角形面，确保面的正确连接
-    // 使用[0,1,2]和[0,2,3]的索引组合形成一个四边形
-    const faces = [
-      [0, 1, 2],  // 第一个三角形
-      [0, 2, 3]   // 第二个三角形
-    ];
+    // 处理4点格式（正方形，由两个三角形组成）
+    if (points.length === 4) {
+      // 使用前四个点作为正方形的顶点
+      // 确保按用户提供的PLY格式顺序使用顶点
+      const vertices = points.slice(0, 4).map(point => [point.x, point.y, point.z]);
+      
+      // 定义正方形的两个三角形面，确保面的正确连接
+      // 使用[0,1,2]和[0,2,3]的索引组合形成一个四边形
+      const faces = [
+        [0, 1, 2],  // 第一个三角形
+        [0, 2, 3]   // 第二个三角形
+      ];
 
-    console.log('生成正方形面数据:', { vertices, faces });
-    return {
-      vertices,
-      faces
-    };
+      console.log('生成正方形面数据:', { vertices, faces });
+      return {
+        vertices,
+        faces
+      };
+    } 
+    // 处理6点格式（两个三角形）
+    else if (points.length === 6) {
+      // 使用所有六个点
+      const vertices = points.map(point => [point.x, point.y, point.z]);
+      
+      // 定义两个三角形面，前三个点组成第一个三角形，后三个点组成第二个三角形
+      const faces = [
+        [0, 1, 2],  // 第一个三角形
+        [3, 4, 5]   // 第二个三角形
+      ];
+
+      console.log('生成两个三角形面数据:', { vertices, faces });
+      return {
+        vertices,
+        faces
+      };
+    }
   }
 
   /**
