@@ -2562,9 +2562,8 @@ const processTrajectory = async (trajectoryId) => {
     const trajectory = trajectoryHistory.value[trajectoryIndex];
     
     // 调用后端接口获取处理后的PLY文件
-    // 注意：这里需要根据实际情况修改参数，可能需要batchId和plyBatchNo
-    // 假设trajectory中包含这些信息
-    const result = await getPlyFile(trajectory.batchId, trajectory.plyBatchNo);
+    // 使用页面级别的batchId（最初上传dicom文件时的batchid）和轨迹的plyBatchNo
+    const result = await getPlyFile(batchId, trajectory.plyBatchNo);
     
     // 解析ZIP文件获取多个PLY
     // 这里需要实现ZIP解析逻辑，获取所有PLY文件
@@ -2976,9 +2975,7 @@ const uploadTrajectory = async (trajectoryId) => {
     
     // 标记轨迹为已上传
     trajectory.uploaded = true;
-    // 自增PLY批次号，以便下次上传时使用新的批次号
-    trajectory.plyBatchNo = (trajectory.plyBatchNo || 1) + 1;
-    console.log('轨迹上传成功:', trajectoryId, '新的PLY批次号:', trajectory.plyBatchNo - 1);
+    console.log('轨迹上传成功:', trajectoryId, 'PLY批次号:', trajectory.plyBatchNo);
     
     // 尝试获取校准轨迹
     try {

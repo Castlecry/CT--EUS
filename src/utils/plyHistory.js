@@ -24,6 +24,8 @@ class PlyHistoryManager {
       0xFFA500,  // 橙色
       0x800080   // 紫红色
     ];
+    // PLY批次号计数器，确保从1开始递增且不受删除影响
+    this.plyBatchNoCounter = 1;
   }
 
   /**
@@ -84,8 +86,11 @@ class PlyHistoryManager {
       lineObject,
       timestamp,
       color,
-      plyBatchNo: 1 // 初始化PLY批次号为1
+      plyBatchNo: this.plyBatchNoCounter // 使用递增的PLY批次号
     };
+    
+    // 递增PLY批次号计数器，确保下一条轨迹使用新的批次号
+    this.plyBatchNoCounter++;
     
     // 添加到历史记录
     const modelTrajectories = this.trajectories.get(this.currentModel);
@@ -220,6 +225,8 @@ class PlyHistoryManager {
     
     // 重新命名剩余的轨迹
     this._renameTrajectories();
+    
+    // 注意：删除操作不影响plyBatchNoCounter的值，确保后续轨迹的批次号继续递增
     
     console.log(`删除历史轨迹: ${trajectory.name}`);
     return true;
