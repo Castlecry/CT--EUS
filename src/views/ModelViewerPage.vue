@@ -221,7 +221,16 @@
                               上传
                             </button>
                           </template>
-                          <!-- 已上传的轨迹只显示删除按钮 -->
+                          <!-- 已上传的轨迹显示处理按钮和删除按钮 -->
+                          <template v-if="trajectory.uploaded">
+                            <button 
+                              class="action-btn process-btn" 
+                              @click="processTrajectory(trajectory.id)"
+                              :disabled="isDrawingMode || trajectory.processed"
+                            >
+                              进行处理
+                            </button>
+                          </template>
                           <button 
                             class="action-btn delete-btn" 
                             @click="deleteHistoryTrajectory(trajectory.id)"
@@ -818,7 +827,7 @@
 import '../styles/modelviewer-page.css';
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly, getCalibrationTrajectoryPly, uploadPoint2CTParams } from '../api/dicom.js';
+import { getOrganModel, getOrganPlyModel, uploadTrajectoryPly, getCalibrationTrajectoryPly, getPlyFile, uploadPoint2CTParams } from '../api/dicom.js';
 import ModelRenderer from '../utils/modelRenderer.js';
 import PlyRenderer from '../utils/plyRenderer.js';
 import point2CTManager from '../utils/point2ct.js';
@@ -1282,6 +1291,10 @@ const currentDisplayedTrajectoryId = ref(null);
 // 跟踪展开的点坐标视图
 const expandedPointsViews = ref(new Set());
 
+// 处理轨迹相关状态
+const processedTrajectories = ref(new Map()); // 存储处理后的轨迹数据
+const processingTrajectoryId = ref(null); // 当前正在处理的轨迹ID
+
 // 模型颜色控制
 const selectedColorIndex = ref(0);
 const customRgb = ref({ r: 204, g: 204, b: 255 });
@@ -1631,6 +1644,49 @@ const clearAllModels = () => {
       cleanupGeneratedPly();
     }
   }
+  
+  // 清除上传图片功能生成的面和点
+  clearImage2PointRender();
+  currentImage2PointRecordId.value = null;
+  
+  // 清除处理后的轨迹相关元素
+  if (renderer.value && renderer.value.scene) {
+    const objectsToRemove = [];
+    
+    // 查找所有以"processed-"开头的物体
+    renderer.value.scene.traverse((object) => {
+      if (object.name && object.name.startsWith('processed-')) {
+        objectsToRemove.push(object);
+      }
+    });
+    
+    // 移除所有处理后的轨迹元素
+    objectsToRemove.forEach((object) => {
+      // 释放几何体和材质资源
+      if (object.geometry) {
+        object.geometry.dispose();
+      }
+      if (object.material) {
+        if (Array.isArray(object.material)) {
+          object.material.forEach(material => material.dispose());
+        } else {
+          object.material.dispose();
+        }
+      }
+      // 从场景中移除物体
+      renderer.value.scene.remove(object);
+    });
+    
+    console.log(`已清除${objectsToRemove.length}个处理后的轨迹元素`);
+  }
+  
+  // 清空处理后的轨迹数据
+  processedTrajectories.value.clear();
+  
+  // 重置轨迹历史记录中的processed标记
+  trajectoryHistory.value.forEach(trajectory => {
+    trajectory.processed = false;
+  });
   
   renderer.value.clearAllModels();
   loadedOrgans.value = [];
@@ -2489,15 +2545,278 @@ const toggleTrajectoryHistory = () => {
   }
 };
 
+// 处理轨迹方法
+const processTrajectory = async (trajectoryId) => {
+  if (!trajectoryId) return;
+  
+  processingTrajectoryId.value = trajectoryId;
+  
+  try {
+    // 查找对应的轨迹记录
+    const trajectoryIndex = trajectoryHistory.value.findIndex(t => t.id === trajectoryId);
+    if (trajectoryIndex === -1) {
+      console.error('未找到指定的轨迹记录:', trajectoryId);
+      return;
+    }
+    
+    const trajectory = trajectoryHistory.value[trajectoryIndex];
+    
+    // 调用后端接口获取处理后的PLY文件
+    // 注意：这里需要根据实际情况修改参数，可能需要batchId和plyBatchNo
+    // 假设trajectory中包含这些信息
+    const result = await getPlyFile(trajectory.batchId, trajectory.plyBatchNo);
+    
+    // 解析ZIP文件获取多个PLY
+    // 这里需要实现ZIP解析逻辑，获取所有PLY文件
+    // 假设result.data是ZIP文件的URL，我们需要使用JSZip来解析
+    const JSZip = await import('jszip');
+    const zip = await JSZip.default.loadAsync(result.data);
+    
+    // 存储当前轨迹的所有处理后数据
+    const processedData = {
+      plyFiles: [],
+      samplePoints: [],
+      faces: []
+    };
+    
+    // 遍历ZIP中的所有文件
+    for (const [filename, file] of Object.entries(zip.files)) {
+      if (filename.endsWith('.ply')) {
+        // 读取PLY文件内容
+        const plyData = await file.async('arraybuffer');
+        
+        // 解析PLY文件获取点数据
+        // 这里需要实现PLY解析逻辑，假设得到7个点的数组
+        const points = parsePlyFile(plyData);
+        
+        if (points.length === 7) {
+          // 保存PLY文件数据
+          processedData.plyFiles.push({
+            filename,
+            points
+          });
+          
+          // 渲染7点PLY
+          renderProcessedPly(points, trajectory.color);
+          
+          // 保存采样点用于连接
+          processedData.samplePoints.push(points[0]);
+        }
+      }
+    }
+    
+    // 连接所有采样点
+    if (processedData.samplePoints.length > 1) {
+      connectSamplePoints(processedData.samplePoints, trajectory.color);
+    }
+    
+    // 标记轨迹为已处理
+    trajectoryHistory.value[trajectoryIndex].processed = true;
+    
+    // 保存处理后的数据
+    processedTrajectories.value.set(trajectoryId, processedData);
+    
+    console.log('轨迹处理完成:', trajectoryId, processedData);
+  } catch (error) {
+    console.error('处理轨迹失败:', error);
+  } finally {
+    processingTrajectoryId.value = null;
+  }
+};
+
+// 渲染处理后的PLY文件（7点格式）
+const renderProcessedPly = (points, color) => {
+  if (!points || points.length !== 7) return;
+  
+  try {
+    // 第一个点是采样点，需要标记颜色
+    const samplePoint = points[0];
+    
+    // 创建采样点
+    const samplePointGeometry = new THREE.BufferGeometry();
+    const samplePointPosition = new Float32Array([samplePoint.x, samplePoint.y, samplePoint.z]);
+    samplePointGeometry.setAttribute('position', new THREE.BufferAttribute(samplePointPosition, 3));
+    
+    const samplePointMaterial = new THREE.PointsMaterial({
+      color: color,  // 使用轨迹颜色
+      size: 3.0,  // 采样点更大一些
+      sizeAttenuation: true
+    });
+    
+    const samplePointObject = new THREE.Points(samplePointGeometry, samplePointMaterial);
+    samplePointObject.name = `processed-sample-point-${Date.now()}`;
+    renderer.value.scene.add(samplePointObject);
+    
+    // 创建三角形面1（2、3、4点）
+    const face1Positions = new Float32Array([
+      points[1].x, points[1].y, points[1].z,
+      points[2].x, points[2].y, points[2].z,
+      points[3].x, points[3].y, points[3].z
+    ]);
+    const face1Indices = [0, 1, 2];
+    
+    // 创建三角形面2（5、6、7点）
+    const face2Positions = new Float32Array([
+      points[4].x, points[4].y, points[4].z,
+      points[5].x, points[5].y, points[5].z,
+      points[6].x, points[6].y, points[6].z
+    ]);
+    const face2Indices = [0, 1, 2];
+    
+    // 创建半透明材质（使用轨迹颜色）
+    const material = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide
+    });
+    
+    // 渲染第一个三角形面
+    const face1Geometry = new THREE.BufferGeometry();
+    face1Geometry.setAttribute('position', new THREE.BufferAttribute(face1Positions, 3));
+    face1Geometry.setIndex(face1Indices);
+    face1Geometry.computeVertexNormals();
+    
+    const face1 = new THREE.Mesh(face1Geometry, material);
+    face1.name = `processed-face-1-${Date.now()}`;
+    renderer.value.scene.add(face1);
+    
+    // 渲染第二个三角形面
+    const face2Geometry = new THREE.BufferGeometry();
+    face2Geometry.setAttribute('position', new THREE.BufferAttribute(face2Positions, 3));
+    face2Geometry.setIndex(face2Indices);
+    face2Geometry.computeVertexNormals();
+    
+    const face2 = new THREE.Mesh(face2Geometry, material);
+    face2.name = `processed-face-2-${Date.now()}`;
+    renderer.value.scene.add(face2);
+    
+    console.log('处理后的PLY文件渲染完成');
+  } catch (error) {
+    console.error('渲染处理后的PLY文件失败:', error);
+  }
+};
+
+// 连接采样点
+const connectSamplePoints = (points, color) => {
+  if (!points || points.length < 2) return;
+  
+  try {
+    // 创建轨迹线几何
+    const lineGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(points.length * 3);
+    
+    for (let i = 0; i < points.length; i++) {
+      positions[i * 3] = points[i].x;
+      positions[i * 3 + 1] = points[i].y;
+      positions[i * 3 + 2] = points[i].z;
+    }
+    
+    lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    
+    // 创建轨迹线材质
+    const lineMaterial = new THREE.LineBasicMaterial({
+      color: color,
+      linewidth: 2
+    });
+    
+    // 创建轨迹线
+    const line = new THREE.Line(lineGeometry, lineMaterial);
+    line.name = `processed-sample-line-${Date.now()}`;
+    renderer.value.scene.add(line);
+    
+    console.log('采样点连接完成');
+  } catch (error) {
+    console.error('连接采样点失败:', error);
+  }
+};
+
+// 解析PLY文件的辅助函数（完整版，支持7点格式的PLY文件）
+const parsePlyFile = (data) => {
+  try {
+    // 将ArrayBuffer转换为字符串
+    const text = new TextDecoder().decode(data);
+    
+    // 分割行
+    const lines = text.split(/\r?\n/);
+    
+    // 解析PLY头部
+    let vertexCount = 0;
+    let propertyCount = 0;
+    let dataStartIndex = 0;
+    let isBinary = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      if (line.startsWith('element vertex')) {
+        vertexCount = parseInt(line.split(' ')[2], 10);
+      } else if (line.startsWith('property')) {
+        propertyCount++;
+      } else if (line === 'end_header') {
+        dataStartIndex = i + 1;
+        break;
+      }
+    }
+    
+    // 如果是ASCII格式的PLY文件
+    if (text.includes('format ascii')) {
+      const points = [];
+      
+      // 解析顶点数据
+      for (let i = dataStartIndex; i < dataStartIndex + vertexCount; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const values = line.split(/\s+/).map(Number);
+        if (values.length >= 3) {
+          points.push({
+            x: values[0],
+            y: values[1],
+            z: values[2]
+          });
+        }
+      }
+      
+      return points;
+    }
+    // 如果是二进制格式的PLY文件
+    else if (text.includes('format binary')) {
+      // 找到二进制数据的起始位置
+      const binaryData = data.slice(data.byteLength - (vertexCount * propertyCount * 4));
+      const floatArray = new Float32Array(binaryData);
+      
+      const points = [];
+      
+      // 解析顶点数据
+      for (let i = 0; i < vertexCount; i++) {
+        const offset = i * propertyCount;
+        points.push({
+          x: floatArray[offset],
+          y: floatArray[offset + 1],
+          z: floatArray[offset + 2]
+        });
+      }
+      
+      return points;
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('解析PLY文件失败:', error);
+    return [];
+  }
+};
+
 // 显示历史轨迹
 const showHistoryTrajectory = (trajectoryId) => {
   if (!plyRenderer.value || isDrawingMode.value) return;
   
   try {
-    // 检查轨迹是否已上传，如果已上传则不显示
+    // 检查轨迹是否已上传或已处理，如果已上传或已处理则不显示
     const trajectory = trajectoryHistory.value.find(t => t.id === trajectoryId);
-    if (trajectory && trajectory.uploaded) {
-      console.warn('已上传的轨迹不能查看');
+    if (trajectory && (trajectory.uploaded || trajectory.processed)) {
+      console.warn('已上传或已处理的轨迹不能查看原始轨迹');
       return;
     }
     
