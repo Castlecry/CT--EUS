@@ -828,18 +828,19 @@
           <h4>{{ modalImageName }}</h4>
           <button class="close-modal-btn" @click="closeImageModal">&times;</button>
         </div>
-        <div class="image-modal-body">
-          <img :src="modalImageUrl" class="modal-image" alt="放大图片" />
+        <div class="image-modal-body" @wheel.prevent="handleImageZoom">
+          <div class="image-container" :style="{ transform: `scale(${imageScale})` }">
+            <img :src="modalImageUrl" class="modal-image" alt="放大图片" />
+          </div>
         </div>
         <div class="image-modal-footer">
-          <button class="download-modal-btn" @click="() => {
-            const link = document.createElement('a');
-            link.href = modalImageUrl;
-            link.download = modalImageName || '放大图片.png';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }">
+          <div class="zoom-controls">
+            <button class="zoom-btn" @click="zoomOut" :disabled="imageScale <= 0.5">-</button>
+            <span class="zoom-level">{{ Math.round(imageScale * 100) }}%</span>
+            <button class="zoom-btn" @click="zoomIn" :disabled="imageScale >= 3">+</button>
+            <button class="reset-zoom-btn" @click="resetZoom">重置</button>
+          </div>
+          <button class="download-modal-btn" @click="downloadImage">
             下载图片
           </button>
         </div>
@@ -899,6 +900,7 @@ const renderImageName = ref('');
 const isImageModalOpen = ref(false);
 const modalImageUrl = ref(null);
 const modalImageName = ref('');
+const imageScale = ref(1);
 
 // 显示渲染图片
 const displayRenderImage = (imageUrl, fileName) => {
@@ -936,6 +938,71 @@ const closeImageModal = () => {
   isImageModalOpen.value = false;
   modalImageUrl.value = null;
   modalImageName.value = '';
+  imageScale.value = 1; // 重置缩放比例
+};
+
+// 图片缩放功能
+const handleImageZoom = (event) => {
+  const delta = event.deltaY > 0 ? -0.1 : 0.1;
+  imageScale.value = Math.max(0.5, Math.min(3, imageScale.value + delta));
+};
+
+const zoomIn = () => {
+  imageScale.value = Math.min(3, imageScale.value + 0.2);
+};
+
+const zoomOut = () => {
+  imageScale.value = Math.max(0.5, imageScale.value - 0.2);
+};
+
+const resetZoom = () => {
+  imageScale.value = 1;
+};
+
+// 下载图片
+const downloadImage = () => {
+  if (modalImageUrl.value) {
+    // 创建一个临时的canvas元素来处理图片
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // 处理跨域问题
+    
+    img.onload = function() {
+      // 创建canvas
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // 设置canvas尺寸为原始图片尺寸
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // 绘制图片到canvas
+      ctx.drawImage(img, 0, 0);
+      
+      // 转换为blob并下载
+      canvas.toBlob(function(blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = modalImageName.value || '放大图片.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url); // 释放URL对象
+      }, 'image/png');
+    };
+    
+    img.onerror = function() {
+      // 如果图片加载失败，使用原始方法
+      const link = document.createElement('a');
+      link.href = modalImageUrl.value;
+      link.download = modalImageName.value || '放大图片.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+    
+    img.src = modalImageUrl.value;
+  }
 };
 
 // 图像2点功能相关方法
@@ -3497,13 +3564,13 @@ const deleteHistoryTrajectory = (trajectoryId) => {
 }
 
 .image-modal-content {
-  width: 60%;
-  max-width: 900px;
+  width: 85%;
+  max-width: 1500px;
   background-color: white;
   border-radius: 8px;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
   overflow: hidden;
-  max-height: 90vh;
+  max-height: 95vh;
   display: flex;
   flex-direction: column;
 }
@@ -3549,15 +3616,24 @@ const deleteHistoryTrajectory = (trajectoryId) => {
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: hidden;
+  overflow: auto;
   flex: 1;
+  position: relative;
+}
+
+.image-container {
+  transition: transform 0.2s ease;
+  transform-origin: center center;
 }
 
 .modal-image {
-  max-width: 100%;
-  max-height: calc(90vh - 150px);
+  max-width: none;
+  max-height: none;
+  width: auto;
+  height: auto;
   object-fit: contain;
   border-radius: 4px;
+  display: block;
 }
 
 .image-modal-footer {
@@ -3565,7 +3641,60 @@ const deleteHistoryTrajectory = (trajectoryId) => {
   background-color: #f8f9fa;
   border-top: 1px solid #e9ecef;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zoom-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ddd;
+  background-color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  transition: all 0.2s ease;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background-color: #f0f0f0;
+  border-color: #007bff;
+}
+
+.zoom-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.zoom-level {
+  min-width: 50px;
+  text-align: center;
+  font-size: 14px;
+  color: #495057;
+}
+
+.reset-zoom-btn {
+  padding: 6px 12px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.reset-zoom-btn:hover {
+  background-color: #5a6268;
 }
 
 .download-modal-btn {

@@ -85,6 +85,7 @@ class PlyRenderer {
       this.drawnCurves = []; // 保存已绘制的所有曲线数据
       this.snapCallback = null; // 吸附回调函数
       this.snapEnabled = false; // 是否启用吸附
+      this._eventHandlersBound = false; // 事件处理器是否已绑定到DOM元素
       // 节流控制变量
       this.lastAddPointTime = null;
       this.lastUpdatePreviewTime = null;
@@ -2036,19 +2037,36 @@ class PlyRenderer {
       this.controls.enabled = false;
     }
     
-    // 确保鼠标事件处理程序已绑定
+    // 确保鼠标事件处理程序已绑定并添加到DOM元素
     if (!this._eventHandlersBound) {
       this._bindEventHandlers();
+      // 直接绑定鼠标事件，确保选点功能正常工作
+      if (this.renderer && this.renderer.domElement) {
+        this.renderer.domElement.addEventListener('mousedown', this._handleMouseDown);
+        this.renderer.domElement.addEventListener('mousemove', this._handleMouseMove);
+        this.renderer.domElement.addEventListener('mouseup', this._handleMouseUp);
+        this.renderer.domElement.addEventListener('mouseleave', this._handleMouseLeave);
+        this._eventHandlersBound = true;
+        console.log('鼠标事件已绑定到DOM元素');
+      }
     }
     
-    // 优先使用传入的model参数，其次使用trajectoryHistory，最后保留现有逻辑
+    // 确保currentModel已设置
     if (model) {
       this.currentModel = model;
-    } else if (!this.currentModel && this.trajectoryHistory.getCurrentModel) {
+      console.log('启用吸附功能：使用传入的model设置currentModel:', this.currentModel);
+    } else if (this.trajectoryHistory.getCurrentModel) {
       this.currentModel = this.trajectoryHistory.getCurrentModel();
+      console.log('启用吸附功能：使用trajectoryHistory设置currentModel:', this.currentModel);
+    } else if (this.currentModel) {
+      console.log('启用吸附功能：使用已有的currentModel:', this.currentModel);
+    } else {
+      console.error('启用吸附功能失败：currentModel未设置');
+      // 确保即使没有trajectoryHistory，currentModel也有默认值（如果有的话）
+      // 可以尝试使用当前加载的模型名称
     }
     
-    console.log('启用吸附功能，鼠标样式已设置为十字型，currentModel:', this.currentModel);
+    console.log('启用吸附功能完成，鼠标样式已设置为十字型，currentModel:', this.currentModel);
   }
 
   /**
