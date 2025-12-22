@@ -382,8 +382,8 @@
                               </span>
                             </div>
                             <div class="record-images" v-if="record.files.png1 || record.files.png2">
-                              <img v-if="record.files.png1" :src="record.files.png1" class="record-image" :alt="'渲染图1'" @click.stop="displayRenderImage(record.files.png1, '渲染图1')" />
-                              <img v-if="record.files.png2" :src="record.files.png2" class="record-image" :alt="'渲染图2'" @click.stop="displayRenderImage(record.files.png2, '渲染图2')" />
+                              <img v-if="record.files.png1" :src="record.files.png1" class="record-image" :alt="'渲染图1'" @click.stop="openImageModal(record.files.png1, '渲染图1')" />
+                              <img v-if="record.files.png2" :src="record.files.png2" class="record-image" :alt="'渲染图2'" @click.stop="openImageModal(record.files.png2, '渲染图2')" />
                             </div>
                           </div>
                         </div>
@@ -582,7 +582,7 @@
                             <h5>渲染图片</h5>
                           </div>
                           <div class="render-image-wrapper">
-                            <img :src="renderImageUrl" class="render-image" alt="渲染图片" />
+                            <img :src="renderImageUrl" class="render-image" alt="渲染图片" @click="openImageModal(renderImageUrl, renderImageName)" />
                           </div>
                           <div class="render-image-actions">
                             <button @click="downloadRenderImage" class="download-btn">
@@ -820,6 +820,31 @@
         </div>
       </div>
     </main>
+
+    <!-- 图片放大模态框 -->
+    <div v-if="isImageModalOpen" class="image-modal-overlay" @click="closeImageModal">
+      <div class="image-modal-content" @click.stop>
+        <div class="image-modal-header">
+          <h4>{{ modalImageName }}</h4>
+          <button class="close-modal-btn" @click="closeImageModal">&times;</button>
+        </div>
+        <div class="image-modal-body">
+          <img :src="modalImageUrl" class="modal-image" alt="放大图片" />
+        </div>
+        <div class="image-modal-footer">
+          <button class="download-modal-btn" @click="() => {
+            const link = document.createElement('a');
+            link.href = modalImageUrl;
+            link.download = modalImageName || '放大图片.png';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }">
+            下载图片
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -871,6 +896,9 @@ const loadedOrgans = ref([]);
 const loading = ref({});
 const renderImageUrl = ref(null);
 const renderImageName = ref('');
+const isImageModalOpen = ref(false);
+const modalImageUrl = ref(null);
+const modalImageName = ref('');
 
 // 显示渲染图片
 const displayRenderImage = (imageUrl, fileName) => {
@@ -895,6 +923,20 @@ const closeRenderImage = () => {
   renderImageUrl.value = null;
   renderImageName.value = '';
 }
+
+// 打开图片模态框（放大显示）
+const openImageModal = (imageUrl, fileName) => {
+  modalImageUrl.value = imageUrl;
+  modalImageName.value = fileName || '渲染图片';
+  isImageModalOpen.value = true;
+};
+
+// 关闭图片模态框
+const closeImageModal = () => {
+  isImageModalOpen.value = false;
+  modalImageUrl.value = null;
+  modalImageName.value = '';
+};
 
 // 图像2点功能相关方法
 const handleImageUpload = (event) => {
@@ -1943,8 +1985,8 @@ const togglePoint2CTMode = () => {
       if (plyRenderer.value.disableSnapToClosestPoint) {
         plyRenderer.value.disableSnapToClosestPoint();
       }
-      plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15);
-      console.log('点2CT模式：吸附功能已正确启用，阈值为15');
+      plyRenderer.value.enableSnapToClosestPoint(handlePointSelection, 15, organName);
+      console.log('点2CT模式：吸附功能已正确启用，阈值为15，模型:', organName);
     } catch (error) {
       console.error('启用吸附功能失败:', error);
       alert('启用选点功能失败，请重试');
@@ -2119,15 +2161,6 @@ const confirmSecondAngle = () => {
 // 更新第三个角度
 const updateThirdAngle = () => {
   if (!secondAngleSet.value) return;
-  
-  // 围绕面法向量旋转
-  point2CTManager.rotateAroundFaceNormal(thirdAngle.value);
-  
-  // 更新渲染器中的正方形显示
-  const squarePoints = point2CTManager.getSquarePoints();
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
-    plyRenderer.value.showSquare(squarePoints);
-  }
 };
 
 // 确认第三个角度
@@ -2154,11 +2187,6 @@ const resetPoint2CT = () => {
   secondAngleSet.value = false;
   thirdAngleSet.value = false;
   canUploadPoint2CT.value = false;
-  
-  // 清除渲染器中的正方形显示
-  if (plyRenderer.value && typeof plyRenderer.value.showSquare === 'function') {
-    plyRenderer.value.showSquare(null);
-  }
   
   // 重置point2CTManager
   point2CTManager.reset();
@@ -3303,12 +3331,15 @@ const deleteHistoryTrajectory = (trajectoryId) => {
 
 .images-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 15px;
 }
 
 .image-item {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .image-label {
@@ -3318,9 +3349,10 @@ const deleteHistoryTrajectory = (trajectoryId) => {
   font-size: 14px;
 }
 
-.result-image {
-  max-width: 100%;
-  height: auto;
+.result-image, .history-result-image {
+  width: 100%;
+  height: 300px;
+  object-fit: contain;
   border: 1px solid #dee2e6;
   border-radius: 4px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -3447,6 +3479,118 @@ const deleteHistoryTrajectory = (trajectoryId) => {
   .record-image {
     width: 100%;
     height: auto;
+  }
+}
+
+/* 图片模态框样式 */
+.image-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.image-modal-content {
+  width: 60%;
+  max-width: 900px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.image-modal-header h4 {
+  margin: 0;
+  font-size: 18px;
+  color: #343a40;
+}
+
+.close-modal-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.3s ease;
+}
+
+.close-modal-btn:hover {
+  background-color: #e9ecef;
+  color: #343a40;
+}
+
+.image-modal-body {
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  flex: 1;
+}
+
+.modal-image {
+  max-width: 100%;
+  max-height: calc(90vh - 150px);
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.image-modal-footer {
+  padding: 15px 20px;
+  background-color: #f8f9fa;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.download-modal-btn {
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s ease;
+}
+
+.download-modal-btn:hover {
+  background-color: #0056b3;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .image-modal-content {
+    width: 90%;
+  }
+  
+  .image-modal-header h4 {
+    font-size: 16px;
   }
 }
 </style>

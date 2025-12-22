@@ -2017,7 +2017,7 @@ class PlyRenderer {
    * @param {Function} callback - 吸附回调函数
    * @param {number} threshold - 吸附阈值（可选）
    */
-  enableSnapToClosestPoint(callback, threshold) {
+  enableSnapToClosestPoint(callback, threshold, model) {
     this.snapEnabled = true;
     this.snapCallback = callback;
     
@@ -2041,8 +2041,10 @@ class PlyRenderer {
       this._bindEventHandlers();
     }
     
-    // 确保currentModel已设置（与toggleDrawing方法保持一致）
-    if (!this.currentModel && this.trajectoryHistory.getCurrentModel) {
+    // 优先使用传入的model参数，其次使用trajectoryHistory，最后保留现有逻辑
+    if (model) {
+      this.currentModel = model;
+    } else if (!this.currentModel && this.trajectoryHistory.getCurrentModel) {
       this.currentModel = this.trajectoryHistory.getCurrentModel();
     }
     

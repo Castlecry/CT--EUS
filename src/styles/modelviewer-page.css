@@ -800,6 +800,22 @@ detail-row {
   background-color: #c82333;
 }
 
+/* 处理按钮样式 */
+.process-btn {
+  background-color: #6f42c1; /* 紫色 */
+  color: white;
+  margin: 0 4px;
+}
+
+.process-btn:hover:not(:disabled) {
+  background-color: #5a32a3; /* 深紫色 */
+}
+
+.process-btn:disabled {
+  background-color: #6c757d; /* 禁用时的灰色 */
+  cursor: not-allowed;
+}
+
 /* 轨迹点坐标信息样式 */
 .trajectory-points-info {
   margin-top: 12px;

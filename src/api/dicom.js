@@ -605,11 +605,11 @@ export const getPlyFile = async (batchId, plyBatchNo) => {
     console.log('getPlyFile: 处理后的参数 - batchId:', batchIdStr, 'plyBatchNo:', batchNoStr);
 
     // 构造完整URL用于调试
-    const url = `${apiClient.defaults.baseURL}/api/getPlyFile?batchId=${encodeURIComponent(batchIdStr)}&plyBatchNo=${encodeURIComponent(batchNoStr)}`;
+    const url = `${apiClient.defaults.baseURL}/getPlyFile?batchId=${encodeURIComponent(batchIdStr)}&plyBatchNo=${encodeURIComponent(batchNoStr)}`;
     console.log('getPlyFile 请求URL:', url);
 
     console.log('getPlyFile: 准备发送请求');
-    const response = await apiClient.get('/api/getPlyFile', {
+    const response = await apiClient.get('/getPlyFile', {
       params: {
         batchId: batchIdStr,
         plyBatchNo: batchNoStr

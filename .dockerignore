@@ -1,0 +1,10 @@
+# .dockerignore
+node_modules/
+src/
+public/
+.git/
+.gitignore
+package.json
+package-lock.json
+README.md
+#上述为目前的非必要文件
